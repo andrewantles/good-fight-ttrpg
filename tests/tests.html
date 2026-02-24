@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Good Fight — Tests</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 24px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #c9a84c;
+      margin-bottom: 8px;
+      font-size: 1.4rem;
+    }
+
+    .summary {
+      font-size: 1.1rem;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+    .summary.pass { background: #1b3a1b; color: #6fcf6f; border: 1px solid #2d5a2d; }
+    .summary.fail { background: #3a1b1b; color: #cf6f6f; border: 1px solid #5a2d2d; }
+
+    .suite {
+      margin-bottom: 20px;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .suite h2 {
+      background: #16213e;
+      padding: 10px 16px;
+      font-size: 1rem;
+      color: #8899bb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .suite-badge {
+      font-size: 0.8rem;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .suite-badge.pass { background: #1b3a1b; color: #6fcf6f; }
+    .suite-badge.fail { background: #3a1b1b; color: #cf6f6f; }
+
+    .test {
+      padding: 6px 16px;
+      border-bottom: 1px solid #1a1a2e;
+      font-size: 0.9rem;
+    }
+    .test:last-child { border-bottom: none; }
+    .test.pass { background: #0f1f0f; }
+    .test.fail { background: #1f0f0f; }
+
+    .test .icon {
+      font-weight: bold;
+      margin-right: 8px;
+      font-size: 0.8rem;
+    }
+    .test.pass .icon { color: #6fcf6f; }
+    .test.fail .icon { color: #cf6f6f; }
+
+    .error-detail {
+      margin-top: 4px;
+      padding: 6px 12px;
+      background: #2a1515;
+      border-left: 3px solid #cf6f6f;
+      color: #e8a0a0;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+    }
+
+    #loading {
+      color: #8899bb;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <h1>The Good Fight — Test Suite</h1>
+  <div id="test-summary" class="summary">Running...</div>
+  <div id="test-output"><p id="loading">Loading test modules...</p></div>
+
+  <script src="test-runner.js"></script>
+
+  <!-- Game modules (loaded first so tests can reference them) -->
+  <script src="../js/state.js"></script>
+  <script src="../js/dice.js"></script>
+  <script src="../js/deck.js"></script>
+
+  <!-- Test files — each registers suites via TestRunner.describe() -->
+  <script src="test-state.js"></script>
+  <script src="test-dice.js"></script>
+  <script src="test-deck.js"></script>
+
+  <script>
+    // Run all registered tests once modules are loaded
+    TestRunner.runAll();
+  </script>
+</body>
+</html>

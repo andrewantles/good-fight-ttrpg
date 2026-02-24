@@ -1,0 +1,12 @@
+{
+  "name": "good-fight-ttrpg",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Good Fight — Solo TTRPG browser interface",
+  "scripts": {
+    "test": "node tests/run-node.js"
+  },
+  "devDependencies": {
+    "happy-dom": "^17.0.0"
+  }
+}
