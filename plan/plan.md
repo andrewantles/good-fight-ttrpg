@@ -268,7 +268,7 @@ Key points:
 
 ## Implementation Phases
 
-> **Current status**: Phase 1 complete (items 1–4). Phase 1 items 5–7 are next.
+> **Current status**: Phase 1 complete. Phase 2 is next.
 > See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
 
 ### Phase 1 — Foundation
@@ -276,9 +276,9 @@ Key points:
 2. ~~Implement `state.js` — game state object, `save()` / `load()` / `reset()` via localStorage~~ **DONE** (10 tests passing)
 3. ~~Implement `deck.js` — standard 52-card deck: `shuffle()`, `draw(n)`, `returnCards(cards)`, card value mapping (2-10 face, J=11, Q=12, K=13, A=15). Async API that supports both digital (auto-draw) and physical (manual card entry via picker) modes.~~ **DONE** (15 tests passing)
 4. ~~Implement `dice.js` — `roll(dieType)` returning result, support d4/d6/d8/d10/d12/d20/d100. Async API that supports both digital (Math.random) and physical (manual entry with validation) modes.~~ **DONE** (11 tests passing)
-5. Implement manual input UI components — dice entry prompt (number input with min/max per die type) and card picker (suit + rank selector), used by physical mode
-6. Implement `app.js` — screen router (title → setup → game → victory)
-7. Basic HTML shell + CSS layout with placeholder panels
+5. ~~Implement `ui.js` — manual input UI components: dice entry prompt (number input with min/max per die type) and card picker (suit + rank selector), used by physical mode. Compatible as Dice/Deck providers.~~ **DONE** (14 tests passing)
+6. ~~Implement `app.js` — screen router (title → setup → game → victory), d6 setup tables for Resistance Values and Regime Type (roll or multi-select), setup selections API.~~ **DONE** (13 tests passing)
+7. ~~Basic `index.html` shell + `css/style.css` — dark thematic layout, all 4 screens with placeholder panels, game dashboard grid (top bar, 3-column panels, bottom bar), modal overlay styling.~~ **DONE**
 
 ### Phase 2 — Game Setup & Personnel
 8. Title screen UI (New Game / Continue)

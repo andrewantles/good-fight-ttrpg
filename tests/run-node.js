@@ -26,6 +26,7 @@ document.body.innerHTML = `
   <h1>The Good Fight — Test Suite</h1>
   <div id="test-summary" class="summary">Running...</div>
   <div id="test-output"></div>
+  <div id="app" style="display:none"></div>
 `;
 
 // --- Helper to load a script file into the global scope ---
@@ -44,12 +45,16 @@ function loadScript(filePath) {
 loadScript('../js/state.js');
 loadScript('../js/dice.js');
 loadScript('../js/deck.js');
+loadScript('../js/ui.js');
+loadScript('../js/app.js');
 
 // --- Load test runner and test files ---
 loadScript('test-runner.js');
 loadScript('test-state.js');
 loadScript('test-dice.js');
 loadScript('test-deck.js');
+loadScript('test-ui.js');
+loadScript('test-app.js');
 
 // --- Run tests and print results ---
 async function main() {

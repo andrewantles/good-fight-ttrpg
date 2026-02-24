@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Good Fight</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- Title Screen -->
+    <div data-screen="title" class="screen">
+      <div class="title-screen">
+        <h1>The Good Fight</h1>
+        <p class="subtitle">A Solo Mini-TTRPG</p>
+        <div class="title-actions">
+          <button id="btn-new-game">New Game</button>
+          <button id="btn-continue" disabled>Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Setup Screen -->
+    <div data-screen="setup" class="screen">
+      <div class="setup-screen">
+        <h2>Game Setup</h2>
+
+        <fieldset>
+          <legend>Resistance &amp; Regime</legend>
+          <p class="hint">Roll, or choose one or more, to establish your Resistance and Regime.</p>
+          <div class="setup-table-group">
+            <div class="setup-table">
+              <h4>Resistance Values</h4>
+              <div class="table-options">
+                <label><input type="checkbox" name="resistance" value="1"><span class="roll-num">1</span> Liberty &amp; Freedom</label>
+                <label><input type="checkbox" name="resistance" value="2"><span class="roll-num">2</span> Equality</label>
+                <label><input type="checkbox" name="resistance" value="3"><span class="roll-num">3</span> Collective Solidarity &amp; Unity</label>
+                <label><input type="checkbox" name="resistance" value="4"><span class="roll-num">4</span> Democratic Processes</label>
+                <label><input type="checkbox" name="resistance" value="5"><span class="roll-num">5</span> Truth &amp; Transparency</label>
+                <label><input type="checkbox" name="resistance" value="6"><span class="roll-num">6</span> Cultural &amp; Historical Preservation</label>
+              </div>
+              <button type="button" class="roll-btn" id="btn-roll-resistance">Roll d6</button>
+            </div>
+            <div class="setup-table">
+              <h4>Regime Type</h4>
+              <div class="table-options">
+                <label><input type="checkbox" name="regime" value="1"><span class="roll-num">1</span> Dictatorship</label>
+                <label><input type="checkbox" name="regime" value="2"><span class="roll-num">2</span> Oligarchy</label>
+                <label><input type="checkbox" name="regime" value="3"><span class="roll-num">3</span> Theocracy</label>
+                <label><input type="checkbox" name="regime" value="4"><span class="roll-num">4</span> Surveillance State</label>
+                <label><input type="checkbox" name="regime" value="5"><span class="roll-num">5</span> Foreign Occupation</label>
+                <label><input type="checkbox" name="regime" value="6"><span class="roll-num">6</span> Kleptocracy</label>
+              </div>
+              <button type="button" class="roll-btn" id="btn-roll-regime">Roll d6</button>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Input Mode</legend>
+          <div class="input-mode-toggles">
+            <label>
+              Dice:
+              <select id="input-mode-dice">
+                <option value="digital">Digital</option>
+                <option value="physical">Physical</option>
+              </select>
+            </label>
+            <label>
+              Cards:
+              <select id="input-mode-cards">
+                <option value="digital">Digital</option>
+                <option value="physical">Physical</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint">Digital generates results automatically. Physical prompts you to enter your own dice rolls and card draws.</p>
+        </fieldset>
+
+        <button id="btn-begin">Begin</button>
+      </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div data-screen="game" class="screen">
+      <div class="game-screen">
+
+        <!-- Top Bar — Resources -->
+        <header class="top-bar">
+          <div class="resource" data-resource="influence">
+            <span class="resource-label">Influence</span>
+            <span class="resource-value" id="val-influence">0</span>
+          </div>
+          <div class="resource" data-resource="heat">
+            <span class="resource-label">Heat</span>
+            <span class="resource-value" id="val-heat">0</span>
+          </div>
+          <div class="resource" data-resource="supplies">
+            <span class="resource-label">Supplies</span>
+            <span class="resource-value" id="val-supplies">0</span>
+          </div>
+          <div class="resource" data-resource="turn">
+            <span class="resource-label">Turn</span>
+            <span class="resource-value" id="val-turn">1</span>
+          </div>
+          <div class="resource" data-resource="leader">
+            <span class="resource-label">Leader Skill</span>
+            <span class="resource-value" id="val-leader">0</span>
+          </div>
+          <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+        </header>
+
+        <!-- Main Panels -->
+        <div class="game-panels">
+
+          <!-- Left — Personnel -->
+          <aside class="panel panel-personnel">
+            <h3>Personnel</h3>
+            <section id="section-recruit-pool">
+              <h4>Recruit Pool</h4>
+              <div class="card-list"></div>
+            </section>
+            <section id="section-initiates">
+              <h4>Initiates</h4>
+              <div class="card-list"></div>
+            </section>
+            <section id="section-operatives">
+              <h4>Operatives</h4>
+              <div class="card-list"></div>
+            </section>
+            <section id="section-detained">
+              <h4>Detained</h4>
+              <div class="card-list"></div>
+            </section>
+          </aside>
+
+          <!-- Center — Operations -->
+          <main class="panel panel-operations">
+            <h3>Operations</h3>
+            <div id="operations-list">
+              <p class="placeholder">Operations will appear here once the game begins.</p>
+            </div>
+          </main>
+
+          <!-- Right — Turn Log -->
+          <aside class="panel panel-log">
+            <h3>Turn Log</h3>
+            <div id="turn-log">
+              <p class="placeholder">Events will appear here as you play.</p>
+            </div>
+          </aside>
+
+        </div>
+
+        <!-- Bottom Bar — Turn Controls -->
+        <footer class="bottom-bar">
+          <button id="btn-end-turn">End Turn</button>
+        </footer>
+
+      </div>
+    </div>
+
+    <!-- Victory Screen -->
+    <div data-screen="victory" class="screen">
+      <div class="victory-screen">
+        <h1>Victory</h1>
+        <p>The resistance has prevailed.</p>
+        <div id="victory-stats"></div>
+        <button id="btn-title-return">Return to Title</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Game Modules -->
+  <script src="js/state.js"></script>
+  <script src="js/dice.js"></script>
+  <script src="js/deck.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    App.init();
+  </script>
+</body>
+</html>

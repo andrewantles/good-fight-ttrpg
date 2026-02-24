@@ -1,0 +1,399 @@
+/* The Good Fight TTRPG — Main Stylesheet */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-dark: #1a1a2e;
+  --bg-panel: #16213e;
+  --bg-card: #0f3460;
+  --border: #2a2a4a;
+  --text: #e0e0e0;
+  --text-muted: #8899bb;
+  --gold: #c9a84c;
+  --green: #6fcf6f;
+  --red: #cf6f6f;
+  --yellow: #cfcf6f;
+  --orange: #cf9f4f;
+}
+
+body {
+  font-family: 'Courier New', monospace;
+  background: var(--bg-dark);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+button:hover {
+  background: var(--bg-card);
+  border-color: var(--gold);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button:disabled:hover {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+
+select, input {
+  font-family: inherit;
+  background: var(--bg-dark);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+legend {
+  color: var(--gold);
+  font-weight: bold;
+  padding: 0 8px;
+}
+
+/* --- Screens --- */
+
+.screen {
+  display: none;
+}
+
+.screen.active {
+  display: block;
+}
+
+/* --- Title Screen --- */
+
+.title-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  text-align: center;
+  gap: 16px;
+}
+
+.title-screen h1 {
+  color: var(--gold);
+  font-size: 2.4rem;
+  letter-spacing: 2px;
+}
+
+.title-screen .subtitle {
+  color: var(--text-muted);
+  font-size: 1rem;
+  margin-bottom: 24px;
+}
+
+.title-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.title-actions button {
+  padding: 12px 32px;
+  font-size: 1rem;
+}
+
+/* --- Setup Screen --- */
+
+.setup-screen {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.setup-screen h2 {
+  color: var(--gold);
+  margin-bottom: 20px;
+  font-size: 1.4rem;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.input-mode-toggles {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+
+.input-mode-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+/* Setup tables */
+
+.setup-table-group {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.setup-table {
+  flex: 1;
+}
+
+.setup-table h4 {
+  color: var(--gold);
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.setup-table .table-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setup-table label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.setup-table label input[type="checkbox"] {
+  accent-color: var(--gold);
+}
+
+.setup-table .roll-num {
+  color: var(--text-muted);
+  min-width: 1.2em;
+  text-align: right;
+}
+
+.roll-btn {
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+#btn-begin {
+  margin-top: 24px;
+  padding: 12px 32px;
+  font-size: 1rem;
+  display: block;
+}
+
+/* --- Game Screen --- */
+
+.game-screen {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+/* Top Bar */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.resource {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.resource-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.resource-value {
+  color: var(--gold);
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.icon-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  padding: 4px 8px;
+}
+
+.icon-btn:hover {
+  color: var(--gold);
+}
+
+/* Game Panels */
+
+.game-panels {
+  display: grid;
+  grid-template-columns: 240px 1fr 240px;
+  gap: 0;
+  overflow: hidden;
+}
+
+.panel {
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.panel:last-child {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+.panel h3 {
+  color: var(--gold);
+  font-size: 1rem;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel h4 {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 10px 0 6px;
+}
+
+.panel-operations {
+  border-right: 1px solid var(--border);
+}
+
+.placeholder {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Bottom Bar */
+
+.bottom-bar {
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+
+#btn-end-turn {
+  padding: 10px 32px;
+  font-size: 1rem;
+}
+
+/* --- Victory Screen --- */
+
+.victory-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  text-align: center;
+  gap: 16px;
+}
+
+.victory-screen h1 {
+  color: var(--gold);
+  font-size: 2.4rem;
+}
+
+/* --- Modal Overlay --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 300px;
+  max-width: 400px;
+  text-align: center;
+}
+
+.modal h3 {
+  color: var(--gold);
+  margin-bottom: 16px;
+  font-size: 1rem;
+}
+
+.modal input[type="number"] {
+  width: 100%;
+  padding: 10px;
+  font-size: 1.2rem;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.modal .card-picker {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.modal .card-picker select {
+  padding: 8px 12px;
+  font-size: 1rem;
+}
+
+.modal button {
+  padding: 10px 24px;
+  font-size: 1rem;
+}
