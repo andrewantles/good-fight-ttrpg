@@ -1,3 +1,4 @@
+**These are the operator's notes - Claude, do not edit or parse - Thank you.**
 # General:
 - Does running simulations require the node/happy-dom setup? Perhaps for more than 1 simulation at a time, yes?
 
@@ -33,6 +34,33 @@
     - `"(extremely unlikely both stay the same — 1/52! chance)"` - Any way this can be true? seems like it would be 1/52^2 or something
 - I feel like this is a duplicated test: `'cardValue() maps rank to correct numeric value'`
 
+# js/app.js
+## `attemptRecruit` method issues:
+- `attemptRecruit` method feels random at beginning of phase 2. I suppose more game-action methods will likely wind up in this Class, but feels out of place with the other render, initialize game state, and save/load functions.
+- Logic flaw in `attemptRecruit` method: it checks for `leaderskill===0`, but leader can always attempt recruitment with d10
+    - State initializes to leaderskill===0, so recruitment would never be possible
+    - Interestingly the generated test-driven-development.md file states the rule correctly:
+        - "| 14 | Unit | Recruit attempt: leader can recruit any value | Leader exception |"
+- Mis-interpretation of the rules in the `attemptRecruit` function - assigned operative skill level should not be changed:  
+    - `// Use leader skill level as the recruiting operative's value`
+    - Interestingly, the generated plan.md file states the rule correctly: 
+        - "Recruit attempts: operative must have higher value than recruit (or use leader)"
+- The dice roll(s) are being added to the operative skill level
+    - The dice themselves are the recruit attempt check 
+    - The operative skill level only let's us know whether an attempt can be made
+- Burning a supply is not present in the function, and can be used to raise base d10 to d12.
+## Log concern:
+- Log events are being appended to a `GameState.turnLog`. I worry about performance issues depending on how long games run and how large these lists grow.
+    - Potential solutions:
+        - Could implement some for of compression
+        - Could optimize and shrink the log format, and have a "pretty print" step for the last X logs, rendered dynamically based on what the user is directly attempting to view in the UI
+    - Might be a good metric to track in the simulations. So far, simulation has been entirely focused on gameplay insights, and not on application performance.
+## Other observations:
+- `App.drawToPool` method for drawing to recruit pool is currently orphaned 
+    - confirm functionality implemented in Phase 3 when Recruit Operation logic is implemented
+- `App.updateLeaderSkill` is wrong - setting leader skill to Zero if no operatives. 
+    - As long as leader can always attempt recruitment to get an initial skill level to attempt other ops.
+
 # js/state.js
 - `save()` doesn't check for existing value - just over-writes. Options:
     - Pop an "Ok to overwrite?" message
@@ -46,3 +74,4 @@
 
 # js/deck.js
 - Shuffle method comment: `Shuffle a deck in place (Fisher-Yates).` I want to look this up.
+

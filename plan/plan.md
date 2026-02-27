@@ -268,24 +268,23 @@ Key points:
 
 ## Implementation Phases
 
-> **Current status**: Phase 1 complete. Phase 2 is next.
-> See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
+> **Current status**: Phase 1 complete. Phase 2 code written (items 8–12); recruitment logic has known rule interpretation bugs to fix before tests can be written. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
 
 ### Phase 1 — Foundation
 1. ~~Set up file structure (index.html, css/, js/)~~ **DONE**
 2. ~~Implement `state.js` — game state object, `save()` / `load()` / `reset()` via localStorage~~ **DONE** (10 tests passing)
 3. ~~Implement `deck.js` — standard 52-card deck: `shuffle()`, `draw(n)`, `returnCards(cards)`, card value mapping (2-10 face, J=11, Q=12, K=13, A=15). Async API that supports both digital (auto-draw) and physical (manual card entry via picker) modes.~~ **DONE** (15 tests passing)
 4. ~~Implement `dice.js` — `roll(dieType)` returning result, support d4/d6/d8/d10/d12/d20/d100. Async API that supports both digital (Math.random) and physical (manual entry with validation) modes.~~ **DONE** (11 tests passing)
-5. ~~Implement `ui.js` — manual input UI components: dice entry prompt (number input with min/max per die type) and card picker (suit + rank selector), used by physical mode. Compatible as Dice/Deck providers.~~ **DONE** (14 tests passing)
-6. ~~Implement `app.js` — screen router (title → setup → game → victory), d6 setup tables for Resistance Values and Regime Type (roll or multi-select), setup selections API.~~ **DONE** (13 tests passing)
-7. ~~Basic `index.html` shell + `css/style.css` — dark thematic layout, all 4 screens with placeholder panels, game dashboard grid (top bar, 3-column panels, bottom bar), modal overlay styling.~~ **DONE**
+5. ~~Implement manual input UI components — dice entry prompt (number input with min/max per die type) and card picker (suit + rank selector), used by physical mode~~ **DONE** (14 tests passing)
+6. ~~Implement `app.js` — screen router (title → setup → game → victory)~~ **DONE** (13 tests passing)
+7. ~~Basic HTML shell + CSS layout with placeholder panels~~ **DONE**
 
 ### Phase 2 — Game Setup & Personnel
-8. Title screen UI (New Game / Continue)
-9. Setup screen (Resistance values, Regime type selection, Input Mode toggles)
-10. Personnel panel rendering (recruit pool, initiates, operatives, detained)
-11. Card visual component (suit icon, rank, value display)
-12. Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative
+8. ~~Title screen UI (New Game / Continue)~~ **DONE** — Continue button enabled/disabled based on saved state; `continueGame()` loads and renders saved game
+9. ~~Setup screen (Resistance values, Regime type selection, Input Mode toggles)~~ **DONE** — Begin button captures selections, initializes state, creates/shuffles 52-card recruitment deck, syncs input providers, saves, transitions to game screen
+10. ~~Personnel panel rendering (recruit pool, initiates, operatives, detained)~~ **DONE** — `renderPersonnel()` / `renderCardList()` render all four sections with timer badges; re-renders on any state change
+11. ~~Card visual component (suit icon, rank, value display)~~ **DONE** — `renderCard()` produces suit icon + rank + numeric value with red/dark suit color coding; corresponding CSS added to `style.css`
+12. Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative — **IN PROGRESS** — `attemptRecruit()` and `drawToPool()` written in `app.js`; known rule interpretation bugs (see `questions.md`) must be fixed before tests are written; no Phase 2 tests exist yet
 
 ### Phase 3 — Operations Engine
 13. Operation definitions data structure (requirements, check formulas, outcomes)
