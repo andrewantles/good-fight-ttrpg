@@ -271,12 +271,6 @@ const App = (() => {
     const card = gameState.recruitPool[poolIndex];
     if (!card) return;
 
-    // Need at least one operative (or leader) to recruit
-    if (gameState.operatives.length === 0 && gameState.leaderSkillLevel === 0) {
-      addLogEntry('No operatives available to attempt recruitment.');
-      return;
-    }
-
     // Roll d10 base
     const baseRoll = await Dice.roll('d10');
     let total = baseRoll;
@@ -289,11 +283,6 @@ const App = (() => {
       total += bonusRoll;
       rollBreakdown += ` + ${bonusDie}: ${bonusRoll}`;
     }
-
-    // Use leader skill level as the recruiting operative's value
-    const operativeValue = gameState.leaderSkillLevel;
-    total += operativeValue;
-    rollBreakdown += ` + leader(${operativeValue})`;
 
     const target = card.value;
     const success = total >= target;

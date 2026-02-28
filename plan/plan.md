@@ -292,7 +292,7 @@ Key points:
 
 ## Implementation Phases
 
-> **Current status**: Phase 1 complete. Phase 2 implementation complete (items 8–12); `test-operations.js` created with Phase 2 recruitment tests (18 tests: influence die tiers, leader skill, recruitment pipeline). Two tests intentionally fail against the current implementation — they document known rule bugs in `attemptRecruit()` that must be fixed before Phase 2 is fully done. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
+> **Current status**: Phase 1 complete. Phase 2 complete. All 83 tests passing. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
 
 ### Phase 1 — Foundation
 1. ~~Set up file structure (index.html, css/, js/)~~ **DONE**
@@ -308,7 +308,7 @@ Key points:
 9. ~~Setup screen (Resistance values, Regime type selection, Input Mode toggles)~~ **DONE** — Begin button captures selections, initializes state, creates/shuffles 52-card recruitment deck, syncs input providers, saves, transitions to game screen
 10. ~~Personnel panel rendering (recruit pool, initiates, operatives, detained)~~ **DONE** — `renderPersonnel()` / `renderCardList()` render all four sections with timer badges; re-renders on any state change
 11. ~~Card visual component (suit icon, rank, value display)~~ **DONE** — `renderCard()` produces suit icon + rank + numeric value with red/dark suit color coding; corresponding CSS added to `style.css`
-12. ~~Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative~~ **TESTS WRITTEN, BUGS PENDING** — `attemptRecruit()` and `drawToPool()` implemented in `app.js`; `test-operations.js` created with 18 Phase 2 tests; 2 tests intentionally failing to document known bugs in `attemptRecruit()` (leader block check incorrect, dice formula adds operative skill to roll instead of using roll alone). Fix bugs to complete Phase 2.
+12. ~~Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative~~ **DONE** — `attemptRecruit()` and `drawToPool()` implemented in `app.js`; `test-operations.js` has 18 Phase 2 tests, all passing. Fixed two bugs in `attemptRecruit()`: removed incorrect leader-block guard (leader can always recruit), and removed erroneous addition of `leaderSkillLevel` to the roll total (roll alone determines success, not roll + skill).
 
 ### Phase 3 — Operations Engine
 13. Operation definitions data structure (requirements, check formulas, outcomes)

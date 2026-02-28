@@ -41,6 +41,7 @@
 > Yes, but a couple questions before we move on. In TDD, are we not supposed to create the tests before the implementation? Also, did we not have `happy-dom` for DOM mocks? I notice we're clearing the current saved game to run these tests, but I think with `happy-dom` we get a mock local storage to run tests in.  
 - Test `'drawToPool adds drawn cards to recruitPool'` includes a redundant `Deck.setProvider(null);` call.
     - Same with test `'drawToPool appends when pool already has cards'`
+- Some issues raised at this point regarding consistent loading of a save file named `'current'`
 
 # js/app.js
 ## `attemptRecruit` method issues:
