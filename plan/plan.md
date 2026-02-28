@@ -252,6 +252,30 @@ Key points:
 - Integration tests verify multi-module flows (recruitment pipeline, turn lifecycle, full game scenarios)
 - Each implementation phase below has corresponding tests written first (see TDD doc for mapping)
 
+### TDD Order Rule (enforced from Phase 3 onward)
+
+> **Tests must be written before the implementation, not after.**
+
+Phase 2 deviated from this — implementation (items 8–12) was written first, which allowed rule interpretation bugs to go undetected until tests were written retroactively. Starting with Phase 3, the strict TDD cycle applies to every item:
+
+1. Write the test — define inputs and expected outputs against the spec
+2. Run it — confirm it **fails** (a test that passes before implementation is written is not testing anything)
+3. Write the minimal implementation to make it pass
+4. Run it — confirm it **passes**
+5. Refactor if needed, keeping tests green
+6. Move to the next item
+
+If implementation already exists for some reason (e.g., a spike or prototype), treat it as suspect: write tests against the spec, watch them reveal any divergence, then fix.
+
+### Test Isolation and localStorage
+
+Test helpers that set up game state must **not** call `localStorage.clear()`. Reasons:
+
+- In the Node/happy-dom runner, `localStorage` is already an isolated in-memory mock (a fresh `happy-dom` `Window` instance per run) — there is no real browser storage to worry about, but `clear()` is still a bad habit to normalize.
+- In the browser runner (`tests.html`), `localStorage` is the **real** browser storage — a `clear()` call would wipe the player's actual game saves.
+
+The correct pattern is to call `GameState.save(testState, 'current')`, which overwrites only the specific slot under test. If a test needs a clean slate, construct a fresh `GameState.createInitial()` and save it — don't clear the whole store.
+
 ## Simulation & Analysis
 
 A headless simulation layer runs the game engine with AI player strategies to playtest at scale — single games or batches of thousands. Results are explored via an interactive dashboard (`simulate.html`) with charts powered by Chart.js. The full plan is documented in **[simulation.md](simulation.md)**.
@@ -268,7 +292,7 @@ Key points:
 
 ## Implementation Phases
 
-> **Current status**: Phase 1 complete. Phase 2 code written (items 8–12); recruitment logic has known rule interpretation bugs to fix before tests can be written. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
+> **Current status**: Phase 1 complete. Phase 2 complete. All 83 tests passing. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
 
 ### Phase 1 — Foundation
 1. ~~Set up file structure (index.html, css/, js/)~~ **DONE**
@@ -284,7 +308,7 @@ Key points:
 9. ~~Setup screen (Resistance values, Regime type selection, Input Mode toggles)~~ **DONE** — Begin button captures selections, initializes state, creates/shuffles 52-card recruitment deck, syncs input providers, saves, transitions to game screen
 10. ~~Personnel panel rendering (recruit pool, initiates, operatives, detained)~~ **DONE** — `renderPersonnel()` / `renderCardList()` render all four sections with timer badges; re-renders on any state change
 11. ~~Card visual component (suit icon, rank, value display)~~ **DONE** — `renderCard()` produces suit icon + rank + numeric value with red/dark suit color coding; corresponding CSS added to `style.css`
-12. Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative — **IN PROGRESS** — `attemptRecruit()` and `drawToPool()` written in `app.js`; known rule interpretation bugs (see `questions.md`) must be fixed before tests are written; no Phase 2 tests exist yet
+12. ~~Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative~~ **DONE** — `attemptRecruit()` and `drawToPool()` implemented in `app.js`; `test-operations.js` has 18 Phase 2 tests, all passing. Fixed two bugs in `attemptRecruit()`: removed incorrect leader-block guard (leader can always recruit), and removed erroneous addition of `leaderSkillLevel` to the roll total (roll alone determines success, not roll + skill).
 
 ### Phase 3 — Operations Engine
 13. Operation definitions data structure (requirements, check formulas, outcomes)

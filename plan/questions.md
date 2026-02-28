@@ -34,6 +34,15 @@
     - `"(extremely unlikely both stay the same — 1/52! chance)"` - Any way this can be true? seems like it would be 1/52^2 or something
 - I feel like this is a duplicated test: `'cardValue() maps rank to correct numeric value'`
 
+# tests/test-operations.js
+- tests show leader skill reverting lower if highest level operative is lost. 
+    - Technically follows the rules, but not intended. I've clarified the rules that `leaderSkill` should match whatever the highest operative had been, in the case an operative is lost from the team.
+- At this point, the errors are getting to where I can't track them in this sheet without addressing at the time of generation. I believe the code base is getting bigger, and I'm not being careful enough about what I'm adding to the context - I've just been saying, "ok, phase 2 - go!" It's good to know that I should make specific call-outs to code and patterns and not just leave this to the model to decide. Example after tests/test-operations.js was generated:
+> Yes, but a couple questions before we move on. In TDD, are we not supposed to create the tests before the implementation? Also, did we not have `happy-dom` for DOM mocks? I notice we're clearing the current saved game to run these tests, but I think with `happy-dom` we get a mock local storage to run tests in.  
+- Test `'drawToPool adds drawn cards to recruitPool'` includes a redundant `Deck.setProvider(null);` call.
+    - Same with test `'drawToPool appends when pool already has cards'`
+- Some issues raised at this point regarding consistent loading of a save file named `'current'`
+
 # js/app.js
 ## `attemptRecruit` method issues:
 - `attemptRecruit` method feels random at beginning of phase 2. I suppose more game-action methods will likely wind up in this Class, but feels out of place with the other render, initialize game state, and save/load functions.
