@@ -292,7 +292,7 @@ Key points:
 
 ## Implementation Phases
 
-> **Current status**: Phase 1 complete. Phase 2 complete. All 83 tests passing. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
+> **Current status**: Phase 1 complete. Phase 2 complete. Phase 3 tests written (36 new tests, all failing — TDD step 2 confirmed). Implementation of `operations.js` is next. 83 existing tests passing, 119 total. See [2026-02-23-dev-log.md](2026-02-23-dev-log.md) for session-by-session history.
 
 ### Phase 1 — Foundation
 1. ~~Set up file structure (index.html, css/, js/)~~ **DONE**
@@ -311,16 +311,22 @@ Key points:
 12. ~~Recruitment flow: draw card → recruit pool → recruit attempt (dice roll with modifiers) → initiate (2-turn timer) → operative~~ **DONE** — `attemptRecruit()` and `drawToPool()` implemented in `app.js`; `test-operations.js` has 18 Phase 2 tests, all passing. Fixed two bugs in `attemptRecruit()`: removed incorrect leader-block guard (leader can always recruit), and removed erroneous addition of `leaderSkillLevel` to the roll total (roll alone determines success, not roll + skill).
 
 ### Phase 3 — Operations Engine
-13. Operation definitions data structure (requirements, check formulas, outcomes)
-14. Operation availability checker (do you have enough operatives/supplies/influence?)
+13. Operation definitions data structure (requirements, check formulas, outcomes) — **tests written**
+14. Operation availability checker (do you have enough operatives/supplies/influence?) — **tests written**
 15. Operative assignment UI (select which operatives go on which operation)
-16. Operation resolution logic:
+16. Operation resolution logic: — **tests written**
     - Minor/Average/Significant Vandalism: d100 - Heat check, apply success/failure
     - Gather Supplies: 3x (d100 - Heat + ½ Influence) checks
     - Recruit Attempt: d10 (+ upgrade dice from influence/supplies) vs card value
-    - Scout/Recon: d100 - Heat + operative values, 2-turn assignment
+    - Scout/Recon: d100 - Heat + operative values, 2-turn assignment (startScout sets up multiTurnOps entry; resolveScout called at turn completion)
     - Late-Game Scout: d100 - Heat + operative values, 3-turn assignment
 17. Dice roll resolution modal with animated rolls and result breakdown (digital mode) or manual entry prompts (physical mode)
+
+**Phase 3 rules clarifications from spec:**
+- Check formula: roll d100, success if roll ≤ (100 − Heat). For Scout/Mid/Late ops, add combined operative card values to threshold.
+- Gather Supplies threshold: roll ≤ (100 − Heat + ½ Influence), 3 rolls, +1 supply each success.
+- Significant Vandalism and Scout failures have two bullet points. Bullet 1 is unconditional; bullet 2 is **player's choice**: detain another operative OR lose supplies (−2 Supplies for Vandalism/Scout, −4 for Late-Game Scout).
+- Operation supplies costs are consumed at time of resolution, regardless of success or failure.
 
 ### Phase 4 — Mid/Late-Game Operations & Win Condition
 18. Mid-Game Operations table (d6 roll on success, 6 possible outcomes)
@@ -383,6 +389,8 @@ Key points:
 - Recruit attempts: operative must have higher value than recruit (or use leader)
 - Influence die upgrade tiers: 50=+d4, 100=+d6, 150=+d8, 200=+d10, 250=+d12, 300+=+d20
 - **Multi-bullet failures** (all bullets apply, not just one):
-  - Significant Vandalism failure: (1) 1 operative detained 2 turns AND (2) 1 operative detained 2 turns OR -2 Supplies
-  - Scout/Recon failure: (1) 1 operative detained next turn AND (2) 1 operative detained next turn OR -2 Supplies
-  - Late-Game Scout failure: (1) 2 operatives detained 2 turns AND (2) 1 operative detained 2 turns OR -4 Supplies
+  - Bullet 1 is always assessed unconditionally.
+  - Bullet 2 is a **player choice**: the player decides which side of the OR to accept (detain an operative or lose supplies).
+  - Significant Vandalism failure: (1) 1 operative detained 2 turns AND (2) player chooses: 1 operative detained 2 turns OR −2 Supplies
+  - Scout/Recon failure: (1) 1 operative detained 1 turn AND (2) player chooses: 1 operative detained 1 turn OR −2 Supplies
+  - Late-Game Scout failure: (1) 2 operatives detained 2 turns AND (2) player chooses: 1 operative detained 2 turns OR −4 Supplies

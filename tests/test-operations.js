@@ -279,3 +279,384 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
   });
 
 });
+
+// ─── Suite 4: Operations.canExecute() — Requirements ──────────────────────────
+
+TestRunner.describe('operations.js — canExecute Requirements', function () {
+
+  TestRunner.test('Minor Vandalism: true with 1 operative', function () {
+    const state = bootTestGame({ supplies: 0 });
+    const ops = [{ suit: 'hearts', rank: '5', value: 5 }];
+    TestRunner.assert(Operations.canExecute('minor_vandalism', state, ops));
+  });
+
+  TestRunner.test('Minor Vandalism: false with 0 operatives', function () {
+    const state = bootTestGame();
+    TestRunner.assert(!Operations.canExecute('minor_vandalism', state, []));
+  });
+
+  TestRunner.test('Average Vandalism: true with 2 operatives + 3 supplies', function () {
+    const state = bootTestGame({ supplies: 3 });
+    const ops = [
+      { suit: 'hearts', rank: '5', value: 5 },
+      { suit: 'clubs',  rank: '6', value: 6 },
+    ];
+    TestRunner.assert(Operations.canExecute('average_vandalism', state, ops));
+  });
+
+  TestRunner.test('Average Vandalism: false with 1 operative', function () {
+    const state = bootTestGame({ supplies: 3 });
+    const ops = [{ suit: 'hearts', rank: '5', value: 5 }];
+    TestRunner.assert(!Operations.canExecute('average_vandalism', state, ops));
+  });
+
+  TestRunner.test('Average Vandalism: false with insufficient supplies', function () {
+    const state = bootTestGame({ supplies: 2 });
+    const ops = [
+      { suit: 'hearts', rank: '5', value: 5 },
+      { suit: 'clubs',  rank: '6', value: 6 },
+    ];
+    TestRunner.assert(!Operations.canExecute('average_vandalism', state, ops));
+  });
+
+  TestRunner.test('Significant Vandalism: true with 4 operatives + 5 supplies', function () {
+    const state = bootTestGame({ supplies: 5 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(Operations.canExecute('significant_vandalism', state, ops));
+  });
+
+  TestRunner.test('Scout: true with 4 operatives + 5 supplies', function () {
+    const state = bootTestGame({ supplies: 5 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(Operations.canExecute('scout', state, ops));
+  });
+
+  TestRunner.test('Scout: false with 3 operatives', function () {
+    const state = bootTestGame({ supplies: 5 });
+    const ops = Array.from({ length: 3 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(!Operations.canExecute('scout', state, ops));
+  });
+
+  TestRunner.test('Mid-Game Op: true with 6 operatives + 10 supplies + 30 influence', function () {
+    const state = bootTestGame({ supplies: 10, influence: 30 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(Operations.canExecute('mid_game_op', state, ops, { influenceThreshold: 30 }));
+  });
+
+  TestRunner.test('Mid-Game Op: false with 29 influence', function () {
+    const state = bootTestGame({ supplies: 10, influence: 29 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(!Operations.canExecute('mid_game_op', state, ops, { influenceThreshold: 30 }));
+  });
+
+  TestRunner.test('Late-Game Op: true with 12 operatives + 20 supplies + 60 influence', function () {
+    const state = bootTestGame({ supplies: 20, influence: 60 });
+    const ops = Array.from({ length: 12 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(Operations.canExecute('late_game_op', state, ops, { influenceThreshold: 60 }));
+  });
+
+  TestRunner.test('Late-Game Op: false with 11 operatives', function () {
+    const state = bootTestGame({ supplies: 20, influence: 60 });
+    const ops = Array.from({ length: 11 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    TestRunner.assert(!Operations.canExecute('late_game_op', state, ops, { influenceThreshold: 60 }));
+  });
+
+});
+
+// ─── Suite 5: Operations — Check Formulas ─────────────────────────────────────
+
+TestRunner.describe('operations.js — Check Formulas', function () {
+
+  TestRunner.test('checkBasic: succeeds when roll <= 100 - heat', function () {
+    TestRunner.assert(Operations.checkBasic(80, { heat: 20 }), 'roll 80 at target 80');
+    TestRunner.assert(Operations.checkBasic(1,  { heat: 20 }), 'roll 1 at target 80');
+    TestRunner.assert(!Operations.checkBasic(81, { heat: 20 }), 'roll 81 exceeds target');
+  });
+
+  TestRunner.test('checkBasic: heat 0 means any d100 roll succeeds', function () {
+    TestRunner.assert(Operations.checkBasic(100, { heat: 0 }), 'roll 100 at target 100');
+  });
+
+  TestRunner.test('checkBasic: heat 100 means no roll can succeed', function () {
+    TestRunner.assert(!Operations.checkBasic(1, { heat: 100 }), 'roll 1 fails at target 0');
+  });
+
+  TestRunner.test('checkGatherSupplies: target = 100 - heat + floor(influence / 2)', function () {
+    // heat=20, influence=40: target = 100 - 20 + 20 = 100
+    TestRunner.assert(Operations.checkGatherSupplies(100, { heat: 20, influence: 40 }), 'boundary');
+    TestRunner.assert(!Operations.checkGatherSupplies(101, { heat: 20, influence: 40 }), 'over boundary');
+    // heat=60, influence=0: target = 40
+    TestRunner.assert(Operations.checkGatherSupplies(40,  { heat: 60, influence: 0 }), 'roll 40 at target 40');
+    TestRunner.assert(!Operations.checkGatherSupplies(41, { heat: 60, influence: 0 }), 'roll 41 fails');
+  });
+
+  TestRunner.test('checkGatherSupplies: influence floors at half (odd values)', function () {
+    // heat=0, influence=41: target = 100 + floor(41/2) = 120
+    TestRunner.assert(Operations.checkGatherSupplies(120, { heat: 0, influence: 41 }));
+    TestRunner.assert(!Operations.checkGatherSupplies(121, { heat: 0, influence: 41 }));
+  });
+
+  TestRunner.test('checkWithOperatives: target = 100 - heat + sum of op values', function () {
+    const ops = [{ value: 8 }, { value: 12 }]; // sum = 20, heat=50, target=70
+    TestRunner.assert(Operations.checkWithOperatives(70, { heat: 50 }, ops), 'roll 70 at target 70');
+    TestRunner.assert(!Operations.checkWithOperatives(71, { heat: 50 }, ops), 'roll 71 fails');
+  });
+
+  TestRunner.test('checkWithOperatives: high op values can guarantee success', function () {
+    const ops = [{ value: 13 }, { value: 13 }, { value: 13 }, { value: 13 }]; // sum=52
+    // heat=50, target = 100 - 50 + 52 = 102 (any d100 roll succeeds)
+    TestRunner.assert(Operations.checkWithOperatives(100, { heat: 50 }, ops));
+  });
+
+});
+
+// ─── Suite 6: Operations — Minor Vandalism Resolution ─────────────────────────
+
+TestRunner.describe('operations.js — Minor Vandalism', function () {
+
+  TestRunner.test('success: +1 influence, +1 heat', async function () {
+    const state = bootTestGame({ heat: 20, influence: 0 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // d100=10 (success: 10 <= 80), d4=2 (no recruit)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([10, 2][i++]));
+    await Operations.resolveMinorVandalism(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 1, '+1 influence');
+    TestRunner.assertEqual(state.heat, 21, '+1 heat');
+  });
+
+  TestRunner.test('failure: no change to influence or heat', async function () {
+    const state = bootTestGame({ heat: 90, influence: 5 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // d100=95 (failure: 95 > 10)
+    Dice.setProvider(() => Promise.resolve(95));
+    await Operations.resolveMinorVandalism(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 5, 'influence unchanged');
+    TestRunner.assertEqual(state.heat, 90, 'heat unchanged');
+  });
+
+  TestRunner.test('success with d4=1: draws 1 card to recruit pool', async function () {
+    const state = bootTestGame({ heat: 0, influence: 0 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    const poolBefore = state.recruitPool.length;
+    // d100=1 (success), d4=1 (recruit triggered)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([1, 1][i++]));
+    await Operations.resolveMinorVandalism(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.recruitPool.length, poolBefore + 1, 'recruit pool +1');
+  });
+
+  TestRunner.test('success with d4>1: no recruit pool change', async function () {
+    const state = bootTestGame({ heat: 0, influence: 0 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    const poolBefore = state.recruitPool.length;
+    // d100=1 (success), d4=3 (no recruit)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([1, 3][i++]));
+    await Operations.resolveMinorVandalism(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.recruitPool.length, poolBefore, 'recruit pool unchanged');
+  });
+
+});
+
+// ─── Suite 7: Operations — Average Vandalism Resolution ───────────────────────
+
+TestRunner.describe('operations.js — Average Vandalism', function () {
+
+  TestRunner.test('success: consumes 3 supplies, +3 influence, +3 heat, +1 recruit pool', async function () {
+    const state = bootTestGame({ heat: 20, influence: 0, supplies: 5 });
+    const ops = [
+      { suit: 'hearts', rank: '5', value: 5 },
+      { suit: 'clubs',  rank: '6', value: 6 },
+    ];
+    state.operatives = [...ops];
+    const deckBefore = state.recruitDeck.length;
+    // d100=10 (success: 10 <= 80)
+    Dice.setProvider(() => Promise.resolve(10));
+    await Operations.resolveAverageVandalism(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 2, 'supplies -3');
+    TestRunner.assertEqual(state.influence, 3, '+3 influence');
+    TestRunner.assertEqual(state.heat, 23, '+3 heat');
+    TestRunner.assertEqual(state.recruitPool.length, 1, '+1 recruit pool');
+    TestRunner.assertEqual(state.recruitDeck.length, deckBefore - 1, 'deck -1');
+  });
+
+  TestRunner.test('failure: consumes 3 supplies, 1 operative detained for 1 turn', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 5 });
+    const ops = [
+      { suit: 'hearts', rank: '5', value: 5 },
+      { suit: 'clubs',  rank: '6', value: 6 },
+    ];
+    state.operatives = [...ops];
+    // d100=99 (failure: 99 > 10)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveAverageVandalism(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 2, 'supplies still consumed on failure');
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
+    TestRunner.assertEqual(state.detainedOperatives[0].turnsRemaining, 1, 'detained for 1 turn');
+  });
+
+});
+
+// ─── Suite 8: Operations — Significant Vandalism Resolution ───────────────────
+
+TestRunner.describe('operations.js — Significant Vandalism', function () {
+
+  TestRunner.test('success: consumes 5 supplies, +10 influence, +10 heat, +2 recruit pool', async function () {
+    const state = bootTestGame({ heat: 10, influence: 0, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    const deckBefore = state.recruitDeck.length;
+    // d100=5 (success: 5 <= 90)
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveSignificantVandalism(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 5, 'supplies -5');
+    TestRunner.assertEqual(state.influence, 10, '+10 influence');
+    TestRunner.assertEqual(state.heat, 20, '+10 heat');
+    TestRunner.assertEqual(state.recruitPool.length, 2, '+2 recruit pool');
+    TestRunner.assertEqual(state.recruitDeck.length, deckBefore - 2, 'deck -2');
+  });
+
+  TestRunner.test('failure + player chooses detain: 2 operatives detained for 2 turns', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // d100=99 (failure: 99 > 10)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveSignificantVandalism(state, ops, { secondPenaltyChoice: 'detain' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 5, 'supplies: only -5 operation cost');
+    TestRunner.assertEqual(state.detainedOperatives.length, 2, '2 operatives detained');
+    TestRunner.assert(
+      state.detainedOperatives.every(d => d.turnsRemaining === 2),
+      'both detained for 2 turns'
+    );
+  });
+
+  TestRunner.test('failure + player chooses supplies: 1 detained, -2 supplies as 2nd penalty', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // d100=99 (failure)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveSignificantVandalism(state, ops, { secondPenaltyChoice: 'supplies' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained');
+    // supplies: -5 (operation cost) -2 (chosen penalty) = 3
+    TestRunner.assertEqual(state.supplies, 3, 'supplies: -5 cost + -2 second penalty');
+  });
+
+});
+
+// ─── Suite 9: Operations — Gather Supplies Resolution ─────────────────────────
+
+TestRunner.describe('operations.js — Gather Supplies', function () {
+
+  TestRunner.test('3 successful rolls: +3 supplies', async function () {
+    const state = bootTestGame({ heat: 0, influence: 0, supplies: 0 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // All rolls = 10, target = 100 - 0 + 0 = 100 → always succeed
+    Dice.setProvider(() => Promise.resolve(10));
+    await Operations.resolveGatherSupplies(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 3, '+3 supplies from 3 successes');
+  });
+
+  TestRunner.test('all 3 rolls fail: no supplies gained', async function () {
+    const state = bootTestGame({ heat: 99, influence: 0, supplies: 2 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // target = 100 - 99 + 0 = 1. Roll 50 always fails.
+    Dice.setProvider(() => Promise.resolve(50));
+    await Operations.resolveGatherSupplies(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 2, 'supplies unchanged');
+  });
+
+  TestRunner.test('mixed rolls: +1 supply per success only', async function () {
+    const state = bootTestGame({ heat: 60, influence: 0, supplies: 2 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // target = 100 - 60 + 0 = 40. Rolls: 30 (pass), 50 (fail), 20 (pass)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([30, 50, 20][i++]));
+    await Operations.resolveGatherSupplies(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 4, '+2 supplies (2 successes)');
+  });
+
+  TestRunner.test('influence bonus raises target threshold', async function () {
+    const state = bootTestGame({ heat: 60, influence: 40, supplies: 0 });
+    state.operatives = [{ suit: 'hearts', rank: '5', value: 5 }];
+    // target = 100 - 60 + 20 = 60. Roll 55 succeeds (would fail at target 40 without influence).
+    Dice.setProvider(() => Promise.resolve(55));
+    await Operations.resolveGatherSupplies(state, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 3, '+3 supplies (all 3 succeed with influence bonus)');
+  });
+
+});
+
+// ─── Suite 10: Operations — Scout ─────────────────────────────────────────────
+
+TestRunner.describe('operations.js — Scout', function () {
+
+  TestRunner.test('startScout: creates multiTurnOp with 2 turns remaining and consumes 5 supplies', function () {
+    const state = bootTestGame({ supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    Operations.startScout(state, ops);
+    TestRunner.assertEqual(state.multiTurnOps.length, 1, '1 multi-turn op created');
+    TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 2, '2 turns remaining');
+    TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 4, '4 ops assigned');
+    TestRunner.assertEqual(state.supplies, 5, '5 supplies consumed');
+  });
+
+  TestRunner.test('resolveScout success: adds mid-game opportunity to state', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum = 2+3+4+5=14, target = 100-10+14 = 104 (always succeeds)
+    // d100=5 (success), d6=3 (mid-game table roll)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 3][i++]));
+    await Operations.resolveScout(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.availableMidGameOps.length, 1, '1 mid-game op unlocked');
+    TestRunner.assertEqual(state.availableMidGameOps[0].tableRoll, 3, 'correct table roll stored');
+  });
+
+  TestRunner.test('resolveScout failure + player chooses detain: 2 operatives detained for 1 turn', async function () {
+    const state = bootTestGame({ heat: 99, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum=14, target = 100-99+14 = 15. Roll 90 fails.
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveScout(state, ops, { secondPenaltyChoice: 'detain' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.detainedOperatives.length, 2, '2 operatives detained');
+    TestRunner.assert(
+      state.detainedOperatives.every(d => d.turnsRemaining === 1),
+      'both detained for 1 turn'
+    );
+    TestRunner.assertEqual(state.supplies, 10, 'supplies unchanged');
+  });
+
+  TestRunner.test('resolveScout failure + player chooses supplies: 1 detained, -2 supplies', async function () {
+    const state = bootTestGame({ heat: 99, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum=14, target = 15. Roll 90 fails.
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveScout(state, ops, { secondPenaltyChoice: 'supplies' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained');
+    TestRunner.assertEqual(state.supplies, 8, '-2 supplies as 2nd penalty');
+  });
+
+});
