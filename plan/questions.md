@@ -42,8 +42,15 @@
 - Test `'drawToPool adds drawn cards to recruitPool'` includes a redundant `Deck.setProvider(null);` call.
     - Same with test `'drawToPool appends when pool already has cards'`
 - Some issues raised at this point regarding consistent loading of a save file named `'current'`
+- I would like to understand this pattern: `Dice.setProvider(() => Promise.resolve([1, 1][i++]));`
+    - I believe it's returning multiple `Promise.resolve` results, but I don't see why the code needs more than just one. 
+    - Oh, it's because nested in the called operation is another Promise. It's kind of queueing a second one up in anticipation.
+## Other issues observed and addressed in flow:
+- Yes, but the test on line 543 is incorrect. Since Significant Vandalism *requires* four operatives, it shouldn't even make it to a resolution attempt - it should be blocked as 'not an option' with less than four operatives. I see this pattern again in the test starting on line 649. I think I see what's happening here: In the rules, there are two failure bullet points. The first one is always assessed, but the second one can be influenced by the player, i.e. they get to choose which side of the "OR" statement [in the rules] they would like to accept - either detaining an operative or forfeiting supplies. Apologies if that's wasn't clear from the rules. 
+    - Claude updated the logic to reflect the rules. 
+- Separately, line 566, I only see a single `Promise`, but don't we need a triple `Promise` object queued up here for three rolls? I'm not as familiar with `Promise`s, so correct me if I'm wrong. Same as with the next test, single `Promise` on line 576.# js/app.js
+    - I learned more about Promises here. Aparently the Promise value is held for repeated calls, no need for multiple Promise queueing if you're using the same fulfillment each time.
 
-# js/app.js
 ## `attemptRecruit` method issues:
 - `attemptRecruit` method feels random at beginning of phase 2. I suppose more game-action methods will likely wind up in this Class, but feels out of place with the other render, initialize game state, and save/load functions.
 - Logic flaw in `attemptRecruit` method: it checks for `leaderskill===0`, but leader can always attempt recruitment with d10

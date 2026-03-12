@@ -245,26 +245,63 @@ Open `tests.html` in a browser → all tests run automatically → results displ
 
 ### `operations.js` — Unit Tests + Integration Tests
 
+> **Phase 3 status**: All tests written (36 new tests in `test-operations.js`, suites 4–10). All 36 currently failing — `operations.js` not yet implemented. TDD step 2 confirmed.
+
+**canExecute() requirements (Suite 4):**
+
 | # | Type | Test | What It Verifies |
 |---|------|------|-------------------|
-| 1 | Unit | Minor Vandalism requires 1 operative | Requirement check |
-| 2 | Unit | Average Vandalism requires 2 operatives + 3 supplies | Requirement check |
-| 3 | Unit | Significant Vandalism requires 4 operatives + 5 supplies | Requirement check |
-| 4 | Unit | Scout requires 4 operatives + 5 supplies | Requirement check |
-| 5 | Unit | Mid-Game Op requires 6 operatives + 10 supplies + influence threshold | Requirement check |
-| 6 | Unit | Late-Game Op requires 12 operatives + 20 supplies + influence threshold | Requirement check |
-| 7 | Unit | Requirement checker returns false when operatives insufficient | Validation |
-| 8 | Unit | Requirement checker returns false when supplies insufficient | Validation |
-| 9 | Unit | Requirement checker returns false when influence below threshold | Validation |
-| 10 | Unit | Minor Vandalism success: +1 Influence, +1 Heat, ¼ chance recruit | Outcome math |
-| 11 | Unit | Gather Supplies: each of 3 rolls checked against d100 - Heat + ½ Influence | Formula |
-| 12 | Unit | Recruit attempt: d10 vs card value, upgrade dice at influence thresholds | Formula |
-| 13 | Unit | Recruit attempt: operative must have higher value than target | Validation |
-| 14 | Unit | Recruit attempt: leader can recruit any value | Leader exception |
-| 15 | Integ | Successful recruit attempt moves card from pool → initiates with 2-turn timer | State flow |
-| 16 | Integ | Failed Average Vandalism detains 1 random operative for 1 turn | Failure handling |
-| 17 | Integ | Successful Scout: rolls on mid-game table, creates opportunity | Multi-module |
-| 18 | Integ | Mid-Game Op success applies correct table result to state | Table + state |
+| 1 | Unit | Minor Vandalism: true with 1 operative | Requirement check |
+| 2 | Unit | Minor Vandalism: false with 0 operatives | Requirement check |
+| 3 | Unit | Average Vandalism: true with 2 operatives + 3 supplies | Requirement check |
+| 4 | Unit | Average Vandalism: false with 1 operative | Requirement check |
+| 5 | Unit | Average Vandalism: false with insufficient supplies | Requirement check |
+| 6 | Unit | Significant Vandalism: true with 4 operatives + 5 supplies | Requirement check |
+| 7 | Unit | Scout: true with 4 operatives + 5 supplies | Requirement check |
+| 8 | Unit | Scout: false with 3 operatives | Requirement check |
+| 9 | Unit | Mid-Game Op: true with 6 operatives + 10 supplies + 30 influence | Requirement check |
+| 10 | Unit | Mid-Game Op: false with 29 influence | Influence threshold |
+| 11 | Unit | Late-Game Op: true with 12 operatives + 20 supplies + 60 influence | Requirement check |
+| 12 | Unit | Late-Game Op: false with 11 operatives | Requirement check |
+
+**Check formulas (Suite 5):**
+
+| # | Type | Test | What It Verifies |
+|---|------|------|-------------------|
+| 13 | Unit | checkBasic: success when roll ≤ 100 − heat | Formula boundary |
+| 14 | Unit | checkBasic: heat 0 → any d100 roll succeeds | Edge case |
+| 15 | Unit | checkBasic: heat 100 → no roll succeeds | Edge case |
+| 16 | Unit | checkGatherSupplies: target = 100 − heat + floor(influence/2) | Formula |
+| 17 | Unit | checkGatherSupplies: influence floors at half (odd values) | Floor math |
+| 18 | Unit | checkWithOperatives: target includes sum of op values | Formula |
+| 19 | Unit | checkWithOperatives: high op values guarantee success | Boundary |
+
+**Resolution (Suites 6–10):**
+
+| # | Type | Test | What It Verifies |
+|---|------|------|-------------------|
+| 20 | Integ | Minor Vandalism success: +1 influence, +1 heat | Outcome |
+| 21 | Integ | Minor Vandalism failure: no change | Outcome |
+| 22 | Integ | Minor Vandalism success d4=1: +1 recruit pool | ¼ chance draw |
+| 23 | Integ | Minor Vandalism success d4>1: no recruit pool change | ¼ chance draw |
+| 24 | Integ | Average Vandalism success: −3 supplies, +3 influence, +3 heat, +1 pool | Outcome |
+| 25 | Integ | Average Vandalism failure: −3 supplies, 1 operative detained 1 turn | Failure handling |
+| 26 | Integ | Significant Vandalism success: −5 supplies, +10 influence, +10 heat, +2 pool | Outcome |
+| 27 | Integ | Significant Vandalism failure + choose detain: 2 operatives detained 2 turns | Player choice |
+| 28 | Integ | Significant Vandalism failure + choose supplies: 1 detained, −2 supplies | Player choice |
+| 29 | Integ | Gather Supplies 3 successes: +3 supplies | Outcome |
+| 30 | Integ | Gather Supplies 0 successes: no supplies gained | Outcome |
+| 31 | Integ | Gather Supplies mixed rolls: +1 per success | Outcome |
+| 32 | Integ | Gather Supplies influence bonus raises threshold | Influence modifier |
+| 33 | Integ | startScout: creates multiTurnOp with 2 turns, consumes 5 supplies | Multi-turn setup |
+| 34 | Integ | resolveScout success: adds mid-game opportunity to state | Scout outcome |
+| 35 | Integ | resolveScout failure + choose detain: 2 operatives detained 1 turn | Player choice |
+| 36 | Integ | resolveScout failure + choose supplies: 1 detained, −2 supplies | Player choice |
+
+**Key design notes:**
+- Failure bullet 1 is unconditional. Bullet 2 is a **player choice** (detain OR supplies) — passed as `{ secondPenaltyChoice: 'detain' | 'supplies' }` to resolve functions.
+- Tests that require 4+ operatives for Significant Vandalism / Scout do not test "what if fewer than required" — that scenario is blocked by `canExecute` before resolution is reached.
+- Supplies costs are consumed inside the resolve function at call time, regardless of success/failure.
 
 ### `crackdown.js` — Unit Tests
 
