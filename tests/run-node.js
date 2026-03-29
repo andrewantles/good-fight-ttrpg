@@ -47,6 +47,7 @@ loadScript('../js/dice.js');
 loadScript('../js/deck.js');
 loadScript('../js/ui.js');
 loadScript('../js/app.js');
+loadScript('../js/operations.js');
 
 // --- Load test runner and test files ---
 loadScript('test-runner.js');
