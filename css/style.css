@@ -469,3 +469,120 @@ legend {
   font-weight: bold;
   margin-right: 6px;
 }
+
+/* --- Operation Entries --- */
+
+.operation-entry {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+}
+
+.operation-entry.op-available {
+  border-color: var(--green);
+}
+
+.operation-entry.op-unavailable {
+  opacity: 0.6;
+}
+
+.op-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.op-name {
+  font-weight: bold;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.op-reqs {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.btn-execute {
+  padding: 4px 14px;
+  font-size: 0.8rem;
+}
+
+/* --- Operative Selection --- */
+
+.card-row.selected {
+  border-color: var(--gold);
+  background: #1a2a4e;
+  box-shadow: 0 0 4px rgba(201, 168, 76, 0.3);
+}
+
+.card-row[data-operative-index] {
+  cursor: pointer;
+}
+
+.card-row[data-operative-index]:hover {
+  border-color: var(--gold);
+}
+
+/* --- Resolution Modal --- */
+
+.resolution-modal .rolls-section {
+  margin-bottom: 10px;
+}
+
+.resolution-modal .roll-result {
+  font-size: 0.85rem;
+  padding: 3px 0;
+  color: var(--text-muted);
+}
+
+.resolution-modal .outcome {
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin: 8px 0;
+}
+
+.resolution-modal .outcome-success {
+  color: var(--green);
+}
+
+.resolution-modal .outcome-failure {
+  color: var(--red);
+}
+
+.resolution-modal .effects-list {
+  margin: 8px 0;
+}
+
+.resolution-modal .effect {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.resolution-modal .choice-prompt {
+  margin: 10px 0 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.resolution-modal .modal-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-choice {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+}
+
+.btn-confirm {
+  padding: 8px 20px;
+  font-size: 0.9rem;
+}

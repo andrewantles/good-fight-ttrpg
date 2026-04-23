@@ -57,6 +57,7 @@ loadScript('test-deck.js');
 loadScript('test-ui.js');
 loadScript('test-app.js');
 loadScript('test-operations.js');
+loadScript('test-operations-ui.js');
 
 // --- Run tests and print results ---
 async function main() {

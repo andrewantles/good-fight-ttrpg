@@ -70,6 +70,9 @@ const App = (() => {
   // Active game state — the single source of truth while playing
   let gameState = null;
 
+  // Selected operative indices (for operation assignment)
+  let selectedOperativeIndices = new Set();
+
   /**
    * Get the current game state.
    * @returns {object|null}
@@ -182,6 +185,7 @@ const App = (() => {
   function renderGameState() {
     renderResources();
     renderPersonnel();
+    renderOperations();
   }
 
   /**
@@ -194,7 +198,7 @@ const App = (() => {
     renderCardList('section-initiates', gameState.initiates.map(i => i.card), {
       badges: gameState.initiates.map(i => `${i.turnsRemaining} turn${i.turnsRemaining !== 1 ? 's' : ''}`)
     });
-    renderCardList('section-operatives', gameState.operatives);
+    renderCardList('section-operatives', gameState.operatives, { selectable: true });
     renderCardList('section-detained', gameState.detainedOperatives.map(d => d.card), {
       badges: gameState.detainedOperatives.map(d => `${d.turnsRemaining} turn${d.turnsRemaining !== 1 ? 's' : ''}`)
     });
@@ -223,7 +227,8 @@ const App = (() => {
       if (options.showRecruit) {
         html += ` <button class="btn-recruit" data-card-index="${i}">Recruit</button>`;
       }
-      return `<div class="card-row">${html}</div>`;
+      const selectedClass = (options.selectable && selectedOperativeIndices.has(i)) ? ' selected' : '';
+      return `<div class="card-row${selectedClass}" data-operative-index="${i}">${html}</div>`;
     }).join('');
 
     // Wire recruit buttons
@@ -232,6 +237,24 @@ const App = (() => {
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.dataset.cardIndex, 10);
           attemptRecruit(idx);
+        });
+      });
+    }
+
+    // Wire operative selection click handlers
+    if (options.selectable) {
+      container.querySelectorAll('.card-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          // Don't toggle if they clicked a button inside the row
+          if (e.target.tagName === 'BUTTON') return;
+          const idx = parseInt(row.dataset.operativeIndex, 10);
+          if (selectedOperativeIndices.has(idx)) {
+            deselectOperative(idx);
+          } else {
+            selectOperative(idx);
+          }
+          renderPersonnel();
+          renderOperations();
         });
       });
     }
@@ -357,6 +380,212 @@ const App = (() => {
     }
   }
 
+  // ─── Operative Selection ─────────────────────────────────────────────────────
+
+  /**
+   * Select an operative by index.
+   * @param {number} index - Index in gameState.operatives
+   */
+  function selectOperative(index) {
+    if (!gameState || index < 0 || index >= gameState.operatives.length) return;
+    selectedOperativeIndices.add(index);
+  }
+
+  /**
+   * Deselect an operative by index.
+   * @param {number} index - Index in gameState.operatives
+   */
+  function deselectOperative(index) {
+    selectedOperativeIndices.delete(index);
+  }
+
+  /**
+   * Get currently selected operatives.
+   * @returns {Array} Array of operative card objects
+   */
+  function getSelectedOperatives() {
+    if (!gameState) return [];
+    return Array.from(selectedOperativeIndices)
+      .filter(i => i < gameState.operatives.length)
+      .sort((a, b) => a - b)
+      .map(i => gameState.operatives[i]);
+  }
+
+  // ─── Operations List ────────────────────────────────────────────────────────
+
+  /** Standard operations to display in the operations panel. */
+  const STANDARD_OPERATIONS = [
+    { id: 'minor_vandalism',       name: 'Minor Vandalism',       reqOps: 1, reqSupplies: 0 },
+    { id: 'average_vandalism',     name: 'Average Vandalism',     reqOps: 2, reqSupplies: 3 },
+    { id: 'significant_vandalism', name: 'Significant Vandalism', reqOps: 4, reqSupplies: 5 },
+    { id: 'gather_supplies',       name: 'Gather Supplies',       reqOps: 1, reqSupplies: 0 },
+    { id: 'scout',                 name: 'Scout / Recon',         reqOps: 4, reqSupplies: 5 },
+  ];
+
+  /**
+   * Render the operations list in the center panel.
+   */
+  function renderOperations() {
+    const container = document.getElementById('operations-list');
+    if (!container || !gameState) return;
+
+    const selected = getSelectedOperatives();
+
+    container.innerHTML = STANDARD_OPERATIONS.map(op => {
+      const canExec = Operations.canExecute(op.id, gameState, selected);
+      const statusClass = canExec ? 'op-available' : 'op-unavailable';
+      const reqMet = canExec ? 'Requirements met' : `Needs ${op.reqOps} operative${op.reqOps !== 1 ? 's' : ''}${op.reqSupplies > 0 ? ', ' + op.reqSupplies + ' supplies' : ''}`;
+
+      return `<div class="operation-entry ${statusClass}" data-operation="${op.id}">
+        <div class="op-header">
+          <span class="op-name">${op.name}</span>
+          <span class="op-reqs">${reqMet}</span>
+        </div>
+        <button class="btn-execute" ${canExec ? '' : 'disabled'} data-operation="${op.id}">Execute</button>
+      </div>`;
+    }).join('');
+
+    // Wire execute buttons
+    container.querySelectorAll('.btn-execute').forEach(btn => {
+      btn.addEventListener('click', () => {
+        executeOperation(btn.dataset.operation);
+      });
+    });
+  }
+
+  // ─── Operation Execution ────────────────────────────────────────────────────
+
+  /**
+   * Execute an operation with currently selected operatives.
+   * @param {string} operationId
+   */
+  async function executeOperation(operationId) {
+    if (!gameState) return;
+    const selected = getSelectedOperatives();
+    if (!Operations.canExecute(operationId, gameState, selected)) return;
+
+    // Copy selected operatives for the operation (some operations shift from the array)
+    const ops = [...selected];
+
+    let result;
+    let effects = [];
+    let playerChoice = null;
+
+    const stateBefore = {
+      influence: gameState.influence,
+      heat: gameState.heat,
+      supplies: gameState.supplies,
+    };
+
+    switch (operationId) {
+      case 'minor_vandalism': {
+        result = await Operations.resolveMinorVandalism(gameState, ops);
+        if (result.success) {
+          effects.push('+1 influence', '+1 heat');
+        }
+        break;
+      }
+      case 'average_vandalism': {
+        result = await Operations.resolveAverageVandalism(gameState, ops);
+        effects.push('-3 supplies');
+        if (result.success) {
+          effects.push('+3 influence', '+3 heat', '+1 recruit');
+        } else {
+          effects.push('1 operative detained (1 turn)');
+        }
+        break;
+      }
+      case 'significant_vandalism': {
+        // For Sig Vandalism, we need to ask the player their penalty choice before resolving
+        // because the resolution function applies penalties immediately.
+        // We do a pre-execution choice if relevant.
+        const preChoice = await askPreExecutionChoice(operationId);
+        result = await Operations.resolveSignificantVandalism(gameState, ops, { secondPenaltyChoice: preChoice || 'detain' });
+        effects.push('-5 supplies');
+        if (result.success) {
+          effects.push('+10 influence', '+10 heat', '+2 recruits');
+        } else {
+          effects.push('1 operative detained (2 turns)');
+          if (preChoice === 'supplies') {
+            effects.push('-2 supplies (chosen penalty)');
+          } else {
+            effects.push('1 more operative detained (2 turns)');
+          }
+        }
+        break;
+      }
+      case 'gather_supplies': {
+        result = await Operations.resolveGatherSupplies(gameState, ops);
+        if (result.gained > 0) {
+          effects.push(`+${result.gained} supplies`);
+        } else {
+          effects.push('No supplies gained');
+        }
+        break;
+      }
+      case 'scout': {
+        // Scout is a multi-turn op — start it
+        Operations.startScout(gameState, ops);
+        result = { roll: null, success: null };
+        effects.push('-5 supplies', 'Scout started (2 turns)');
+        break;
+      }
+    }
+
+    // Clear selection
+    selectedOperativeIndices.clear();
+
+    // Build rolls array for the modal
+    let rolls = [];
+    if (result && result.roll !== undefined && result.roll !== null) {
+      const target = 100 - stateBefore.heat;
+      rolls.push({ value: result.roll, target: target, success: result.success });
+    } else if (result && result.rolls) {
+      // Gather supplies has multiple rolls
+      const target = 100 - stateBefore.heat + Math.floor(stateBefore.influence / 2);
+      rolls = result.rolls.map(r => ({ value: r.roll, target: target, success: r.success }));
+    }
+
+    // Save and re-render
+    GameState.save(gameState, 'current');
+    renderGameState();
+    renderOperations();
+
+    // Find the operation name
+    const opDef = STANDARD_OPERATIONS.find(o => o.id === operationId);
+    const opName = opDef ? opDef.name : operationId;
+
+    // Log the result
+    if (result && result.success !== null) {
+      addLogEntry(`${opName}: ${result.success ? 'Success' : 'Failure'}. ${effects.join(', ')}`);
+    } else {
+      addLogEntry(`${opName}: ${effects.join(', ')}`);
+    }
+
+    GameState.save(gameState, 'current');
+  }
+
+  /**
+   * For operations with player choice on failure, ask before execution.
+   * Returns the choice value or null if not applicable.
+   */
+  async function askPreExecutionChoice(operationId) {
+    // Only significant_vandalism and scout need pre-execution choices
+    if (operationId !== 'significant_vandalism' && operationId !== 'scout') return null;
+    // We'll show a simple choice modal
+    const prompt = 'If this operation fails, choose your penalty:';
+    const options = [
+      { label: 'Detain 1 more operative', value: 'detain' },
+      { label: 'Lose 2 supplies', value: 'supplies' },
+    ];
+    return UI.showResolutionModal({
+      operationName: 'Penalty Choice',
+      rolls: [],
+      effects: [],
+      playerChoice: { prompt, options },
+    });
+  }
+
   /**
    * Initialize the app — show title screen, wire up navigation.
    */
@@ -414,12 +643,17 @@ const App = (() => {
     renderPersonnel,
     renderGameState,
     renderResources,
+    renderOperations,
     getInfluenceDie,
     attemptRecruit,
     drawToPool,
     updateLeaderSkill,
     addLogEntry,
     syncInputProviders,
+    selectOperative,
+    deselectOperative,
+    getSelectedOperatives,
+    executeOperation,
     init,
     RESISTANCE_VALUES,
     REGIME_TYPES,

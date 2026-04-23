@@ -40,6 +40,7 @@ function setupGameDOM() {
       <div id="section-initiates"><div class="card-list"></div></div>
       <div id="section-operatives"><div class="card-list"></div></div>
       <div id="section-detained"><div class="card-list"></div></div>
+      <div id="operations-list"></div>
       <div id="turn-log"></div>
     </div>
   `;
