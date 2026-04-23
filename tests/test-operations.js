@@ -750,16 +750,16 @@ TestRunner.describe('operations.js — Mid-Game Operation Resolution', function 
   });
 
   TestRunner.test('success: outcome 5 (Intercept Convoy: +10 heat, +15 supplies)', async function () {
-    const state = bootTestGame({ heat: 10, influence: 50, supplies: 5 });
+    const state = bootTestGame({ heat: 10, influence: 50, supplies: 15 });
     const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
     state.operatives = [...ops];
-    // d100=5 (success), d6=5
+    // d100=5 (success), d6=5. Supplies: 15 - 10 (op cost) + 15 (outcome) = 20
     let i = 0;
     Dice.setProvider(() => Promise.resolve([5, 5][i++]));
     await Operations.resolveMidGameOp(state, ops);
     Dice.setProvider(null);
     TestRunner.assertEqual(state.heat, 20, '+10 heat');
-    TestRunner.assertEqual(state.supplies, 20, '+15 supplies');
+    TestRunner.assertEqual(state.supplies, 20, '+15 supplies (net: -10 cost + 15 gained)');
   });
 
   TestRunner.test('success: outcome 6 (Clandestine Goods: +10 heat, +50 influence)', async function () {

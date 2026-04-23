@@ -64,6 +64,28 @@ const Operations = (() => {
     return roll <= (100 - state.heat + opSum);
   }
 
+  // ─── Mid-Game Operations Table (d6) ──────────────────────────────────────────
+
+  const MID_GAME_TABLE = {
+    1: { name: 'Embed Mole / Bribe Official',                    apply: (s) => { GameState.addHeat(s, -35); } },
+    2: { name: 'Hack/Tap/Destroy Comm Tower',                    apply: (s) => { GameState.addInfluence(s, 25); GameState.addHeat(s, -15); } },
+    3: { name: 'Stage Industry Strike / Public Demonstration',   apply: (s) => { GameState.addHeat(s, -35); } },
+    4: { name: 'Break Out Imprisoned Operatives',                apply: async (s) => { const drawn = await Deck.draw(s.recruitDeck, 2); s.operatives.push(...drawn); } },
+    5: { name: 'Intercept Supply Convoy / Raid Storehouse',      apply: (s) => { GameState.addHeat(s, 10); GameState.addSupplies(s, 15); } },
+    6: { name: 'Provide Clandestine Goods/Services to Population', apply: (s) => { GameState.addHeat(s, 10); GameState.addInfluence(s, 50); } },
+  };
+
+  // ─── Late-Game Operations Table (d8, re-roll 7-8 or duplicates) ─────────────
+
+  const LATE_GAME_TABLE = {
+    1: { name: 'Neutralize Regime Leadership',                          apply: (s) => { GameState.addHeat(s, -50); } },
+    2: { name: 'Establish News Agency and Seize Communications Networks', apply: (s) => { GameState.addInfluence(s, 50); GameState.addHeat(s, -15); } },
+    3: { name: 'Establish Militia and Security Forces',                 apply: (s) => { GameState.addHeat(s, -50); } },
+    4: { name: 'Liberate Prison Facilities',                            apply: async (s) => { const drawn = await Deck.draw(s.recruitDeck, 5); s.operatives.push(...drawn); } },
+    5: { name: 'Control Supply Networks / Egress Points',               apply: (s) => { GameState.addHeat(s, 15); GameState.addSupplies(s, 25); } },
+    6: { name: 'Establish Provisional Government / Organize Elections',  apply: (s) => { GameState.addHeat(s, 15); GameState.addInfluence(s, 50); } },
+  };
+
   // ─── Helper: detain operatives ──────────────────────────────────────────────
 
   function detainOperatives(state, operatives, count, turns) {
@@ -245,6 +267,136 @@ const Operations = (() => {
     return { roll, success };
   }
 
+  // ─── Helper: capture/kill operatives (returned to deck) ──────────────────────
+
+  function captureOperatives(state, operatives, count) {
+    for (let i = 0; i < count && operatives.length > 0; i++) {
+      const op = operatives.shift();
+      const idx = state.operatives.indexOf(op);
+      if (idx !== -1) state.operatives.splice(idx, 1);
+      Deck.returnCards(state.recruitDeck, [op]);
+    }
+  }
+
+  // ─── Resolution: Mid-Game Operation ─────────────────────────────────────────
+
+  async function resolveMidGameOp(state, operatives) {
+    GameState.addSupplies(state, -10);
+
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      const tableRoll = await Dice.roll('d6');
+      const entry = MID_GAME_TABLE[tableRoll];
+      await entry.apply(state);
+    } else {
+      captureOperatives(state, operatives, 1);
+    }
+
+    return { roll, success };
+  }
+
+  // ─── Late-Game Scout: Multi-turn Setup ──────────────────────────────────────
+
+  function startLateGameScout(state, operatives) {
+    GameState.addSupplies(state, -8);
+    state.multiTurnOps.push({
+      operation: 'late_game_scout',
+      turnsRemaining: 3,
+      assignedOperatives: [...operatives],
+    });
+  }
+
+  // ─── Late-Game Scout: Resolution ────────────────────────────────────────────
+
+  async function resolveLateGameScout(state, operatives, options) {
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      const tableRoll = await Dice.roll('d8');
+      state.availableLateGameOps.push({ tableRoll });
+    } else {
+      // Bullet 1: 2 operatives detained 2 turns
+      detainOperatives(state, operatives, 2, 2);
+
+      // Bullet 2: player choice
+      const choice = (options && options.secondPenaltyChoice) || 'detain';
+      if (choice === 'detain') {
+        detainOperatives(state, operatives, 1, 2);
+      } else {
+        GameState.addSupplies(state, -4);
+      }
+    }
+
+    return { roll, success };
+  }
+
+  // ─── Mid-Game Operation: Multi-turn Setup ───────────────────────────────────
+
+  function startMidGameOp(state, operatives) {
+    GameState.addSupplies(state, -10);
+    state.multiTurnOps.push({
+      operation: 'mid_game_op',
+      turnsRemaining: 1,
+      assignedOperatives: [...operatives],
+    });
+  }
+
+  // ─── Late-Game Operation: Multi-turn Setup ──────────────────────────────────
+
+  function startLateGameOp(state, operatives) {
+    GameState.addSupplies(state, -20);
+    state.multiTurnOps.push({
+      operation: 'late_game_op',
+      turnsRemaining: 3,
+      assignedOperatives: [...operatives],
+    });
+  }
+
+  // ─── Resolution: Late-Game Operation ────────────────────────────────────────
+
+  async function resolveLateGameOp(state, operatives) {
+    GameState.addSupplies(state, -20);
+
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      // Roll d8, re-roll if already completed (or 7-8)
+      let tableRoll;
+      do {
+        tableRoll = await Dice.roll('d8');
+      } while (
+        tableRoll > 6 ||
+        state.completedLateGameOps.some(op => op.tableRoll === tableRoll)
+      );
+
+      const entry = LATE_GAME_TABLE[tableRoll];
+      await entry.apply(state);
+      state.completedLateGameOps.push({ tableRoll, name: entry.name });
+    } else {
+      captureOperatives(state, operatives, 2);
+    }
+
+    return { roll, success };
+  }
+
+  // ─── Multi-Turn Operation Tracking ──────────────────────────────────────────
+
+  function advanceMultiTurnOps(state) {
+    for (const op of state.multiTurnOps) {
+      op.turnsRemaining--;
+    }
+  }
+
+  // ─── Victory Check ─────────────────────────────────────────────────────────
+
+  function checkVictory(state) {
+    return state.completedLateGameOps.length >= 3;
+  }
+
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   return {
@@ -258,5 +410,15 @@ const Operations = (() => {
     resolveGatherSupplies,
     startScout,
     resolveScout,
+    MID_GAME_TABLE,
+    LATE_GAME_TABLE,
+    resolveMidGameOp,
+    startLateGameScout,
+    resolveLateGameScout,
+    startMidGameOp,
+    startLateGameOp,
+    resolveLateGameOp,
+    advanceMultiTurnOps,
+    checkVictory,
   };
 })();
