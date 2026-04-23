@@ -108,8 +108,77 @@ const UI = (() => {
     return overlay;
   }
 
+  /**
+   * Show a resolution modal displaying operation results.
+   * @param {object} results - { operationName, rolls: [{value, target, success}], effects: string[], playerChoice: null | {prompt, options: [{label, value}]} }
+   * @returns {Promise} Resolves when confirmed (with choice value if playerChoice was present)
+   */
+  function showResolutionModal(results) {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+
+      // Determine overall success/failure from rolls
+      const allSuccess = results.rolls.every(r => r.success);
+      const outcomeText = allSuccess ? 'Success!' : 'Failure';
+      const outcomeClass = allSuccess ? 'outcome-success' : 'outcome-failure';
+
+      // Build rolls display
+      const rollsHtml = results.rolls.map(r =>
+        `<div class="roll-result">Roll: ${r.value} vs target ${r.target} — ${r.success ? 'Hit' : 'Miss'}</div>`
+      ).join('');
+
+      // Build effects display
+      const effectsHtml = results.effects.length > 0
+        ? `<div class="effects-list">${results.effects.map(e => `<div class="effect">${e}</div>`).join('')}</div>`
+        : '';
+
+      // Build choice or confirm buttons
+      let actionsHtml = '';
+      if (results.playerChoice) {
+        actionsHtml += `<p class="choice-prompt">${results.playerChoice.prompt}</p>`;
+        actionsHtml += results.playerChoice.options.map(opt =>
+          `<button type="button" class="btn-choice" data-choice="${opt.value}">${opt.label}</button>`
+        ).join(' ');
+      } else {
+        actionsHtml = '<button type="button" class="btn-confirm">Confirm</button>';
+      }
+
+      overlay.innerHTML = `
+        <div class="modal resolution-modal">
+          <h3>${results.operationName}</h3>
+          <div class="rolls-section">${rollsHtml}</div>
+          <div class="outcome ${outcomeClass}">${outcomeText}</div>
+          ${effectsHtml}
+          <div class="modal-actions">${actionsHtml}</div>
+        </div>
+      `;
+
+      // Wire up confirm button
+      const confirmBtn = overlay.querySelector('.btn-confirm');
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', function () {
+          overlay.remove();
+          resolve(null);
+        });
+      }
+
+      // Wire up choice buttons
+      const choiceBtns = overlay.querySelectorAll('.btn-choice');
+      choiceBtns.forEach(btn => {
+        btn.addEventListener('click', function () {
+          const choiceValue = btn.dataset.choice;
+          overlay.remove();
+          resolve(choiceValue);
+        });
+      });
+
+      document.body.appendChild(overlay);
+    });
+  }
+
   return {
     diceInput,
     cardInput,
+    showResolutionModal,
   };
 })();
