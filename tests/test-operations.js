@@ -500,6 +500,7 @@ TestRunner.describe('operations.js — Average Vandalism', function () {
     TestRunner.assertEqual(state.supplies, 2, 'supplies still consumed on failure');
     TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
     TestRunner.assertEqual(state.detainedOperatives[0].turnsRemaining, 1, 'detained for 1 turn');
+    TestRunner.assertEqual(state.operatives.length, 1, 'detained operative removed from operatives');
   });
 
 });
@@ -538,6 +539,7 @@ TestRunner.describe('operations.js — Significant Vandalism', function () {
       state.detainedOperatives.every(d => d.turnsRemaining === 2),
       'both detained for 2 turns'
     );
+    TestRunner.assertEqual(state.operatives.length, 2, '2 detained operatives removed from operatives');
   });
 
   TestRunner.test('failure + player chooses supplies: 1 detained, -2 supplies as 2nd penalty', async function () {
@@ -549,6 +551,7 @@ TestRunner.describe('operations.js — Significant Vandalism', function () {
     await Operations.resolveSignificantVandalism(state, ops, { secondPenaltyChoice: 'supplies' });
     Dice.setProvider(null);
     TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained');
+    TestRunner.assertEqual(state.operatives.length, 3, '1 detained operative removed from operatives');
     // supplies: -5 (operation cost) -2 (chosen penalty) = 3
     TestRunner.assertEqual(state.supplies, 3, 'supplies: -5 cost + -2 second penalty');
   });
@@ -615,6 +618,7 @@ TestRunner.describe('operations.js — Scout', function () {
     TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 2, '2 turns remaining');
     TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 4, '4 ops assigned');
     TestRunner.assertEqual(state.supplies, 5, '5 supplies consumed');
+    TestRunner.assertEqual(state.operatives.length, 0, '4 assigned operatives removed from operatives');
   });
 
   TestRunner.test('resolveScout success: adds mid-game opportunity to state', async function () {
@@ -644,6 +648,7 @@ TestRunner.describe('operations.js — Scout', function () {
       state.detainedOperatives.every(d => d.turnsRemaining === 1),
       'both detained for 1 turn'
     );
+    TestRunner.assertEqual(state.operatives.length, 2, '2 detained operatives removed from operatives');
     TestRunner.assertEqual(state.supplies, 10, 'supplies unchanged');
   });
 
@@ -656,6 +661,7 @@ TestRunner.describe('operations.js — Scout', function () {
     await Operations.resolveScout(state, ops, { secondPenaltyChoice: 'supplies' });
     Dice.setProvider(null);
     TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained');
+    TestRunner.assertEqual(state.operatives.length, 3, '1 detained operative removed from operatives');
     TestRunner.assertEqual(state.supplies, 8, '-2 supplies as 2nd penalty');
   });
 
