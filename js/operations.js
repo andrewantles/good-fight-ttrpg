@@ -76,6 +76,22 @@ const Operations = (() => {
     }
   }
 
+  // ─── Helper: Compound Failure second bullet (player choice) ────────────────
+
+  /**
+   * Resolve a Compound Failure's second, player-chosen bullet: detain 1 more
+   * operative, or lose 2 supplies instead.
+   * @param {object} options - { secondPenaltyChoice: 'detain' | 'supplies' }
+   */
+  function resolveCompoundChoice(state, operatives, options, detainTurns) {
+    const choice = (options && options.secondPenaltyChoice) || 'detain';
+    if (choice === 'detain') {
+      detainOperatives(state, operatives, 1, detainTurns);
+    } else {
+      GameState.addSupplies(state, -2);
+    }
+  }
+
   // ─── Resolution: Minor Vandalism ────────────────────────────────────────────
 
   /**
@@ -157,12 +173,7 @@ const Operations = (() => {
       detainOperatives(state, operatives, 1, 2);
 
       // Bullet 2: player choice
-      const choice = (options && options.secondPenaltyChoice) || 'detain';
-      if (choice === 'detain') {
-        detainOperatives(state, operatives, 1, 2);
-      } else {
-        GameState.addSupplies(state, -2);
-      }
+      resolveCompoundChoice(state, operatives, options, 2);
     }
 
     return { roll, success };
@@ -234,12 +245,7 @@ const Operations = (() => {
       detainOperatives(state, operatives, 1, 1);
 
       // Bullet 2: player choice
-      const choice = (options && options.secondPenaltyChoice) || 'detain';
-      if (choice === 'detain') {
-        detainOperatives(state, operatives, 1, 1);
-      } else {
-        GameState.addSupplies(state, -2);
-      }
+      resolveCompoundChoice(state, operatives, options, 1);
     }
 
     return { roll, success };
