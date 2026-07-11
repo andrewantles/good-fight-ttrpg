@@ -212,10 +212,15 @@ const Operations = (() => {
    */
   function startScout(state, operatives) {
     GameState.addSupplies(state, -5);
+    const assigned = [...operatives];
+    for (const op of assigned) {
+      const idx = state.operatives.indexOf(op);
+      if (idx !== -1) state.operatives.splice(idx, 1);
+    }
     state.multiTurnOps.push({
       operation: 'scout',
       turnsRemaining: 2,
-      assignedOperatives: [...operatives],
+      assignedOperatives: assigned,
     });
   }
 
