@@ -350,11 +350,8 @@ const App = (() => {
    */
   function updateLeaderSkill() {
     if (!gameState) return;
-    if (gameState.operatives.length === 0) {
-      gameState.leaderSkillLevel = 0;
-    } else {
-      gameState.leaderSkillLevel = Math.max(...gameState.operatives.map(op => op.value));
-    }
+    const operativeValues = gameState.operatives.map(op => op.value);
+    gameState.leaderSkillLevel = Math.max(gameState.leaderSkillLevel, ...operativeValues);
   }
 
   /**
