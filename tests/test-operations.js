@@ -135,14 +135,26 @@ TestRunner.describe('app.js — Leader Skill Level', function () {
     TestRunner.assertEqual(App.getState().leaderSkillLevel, 11);
   });
 
-  TestRunner.test('updateLeaderSkill sets to 0 when no operatives', function () {
+  TestRunner.test('updateLeaderSkill stays at 0 with no operatives and no prior high-water mark', function () {
     const state = bootTestGame();
     state.operatives = [];
     App.updateLeaderSkill();
     TestRunner.assertEqual(App.getState().leaderSkillLevel, 0);
   });
 
-  TestRunner.test('updateLeaderSkill recalculates after operative removal', function () {
+  TestRunner.test('updateLeaderSkill retains prior high-water mark when operatives drop to zero', function () {
+    const state = bootTestGame();
+    state.operatives = [{ suit: 'spades', rank: 'K', value: 13 }];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 13);
+
+    // All operatives lost/detained/captured
+    state.operatives = [];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 13, 'ratchet: must not reset to 0');
+  });
+
+  TestRunner.test('updateLeaderSkill leaves leaderSkillLevel unchanged after losing the highest-value operative', function () {
     const state = bootTestGame();
     state.operatives = [
       { suit: 'hearts', rank: 'A', value: 15 },
@@ -151,10 +163,10 @@ TestRunner.describe('app.js — Leader Skill Level', function () {
     App.updateLeaderSkill();
     TestRunner.assertEqual(App.getState().leaderSkillLevel, 15);
 
-    // Remove the highest-value operative
+    // Remove the highest-value operative (e.g. lost, detained, or captured)
     state.operatives.splice(0, 1);
     App.updateLeaderSkill();
-    TestRunner.assertEqual(App.getState().leaderSkillLevel, 9);
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 15, 'ratchet: level must not drop');
   });
 
 });
