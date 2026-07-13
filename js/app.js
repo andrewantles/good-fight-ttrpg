@@ -271,10 +271,20 @@ const App = (() => {
     const card = gameState.recruitPool[poolIndex];
     if (!card) return;
 
-    // Roll d10 base
-    const baseRoll = await Dice.roll('d10');
+    // Base die: d10, or d12 if the player spends 1 Supply.
+    // The Leader can always attempt Recruitment (per CONTEXT.md) — this
+    // flow has no per-Operative attempter selection, so no value gate applies.
+    const canAffordSupply = gameState.supplies >= 1;
+    const dieChoice = await UI.recruitDieChoice(canAffordSupply);
+    let baseDie = 'd10';
+    if (dieChoice === 'd12' && canAffordSupply) {
+      baseDie = 'd12';
+      GameState.addSupplies(gameState, -1);
+    }
+
+    const baseRoll = await Dice.roll(baseDie);
     let total = baseRoll;
-    let rollBreakdown = `d10: ${baseRoll}`;
+    let rollBreakdown = `${baseDie}: ${baseRoll}`;
 
     // Influence bonus die
     const bonusDie = getInfluenceDie(gameState.influence);

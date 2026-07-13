@@ -175,6 +175,12 @@ TestRunner.describe('app.js — Leader Skill Level', function () {
 
 TestRunner.describe('app.js — Recruitment Pipeline', function () {
 
+  // ── Helper: pick a base die from the recruitDieChoice modal ────────────────
+  function chooseBaseDie(die) {
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector(`button[data-choice="${die}"]`).click();
+  }
+
   // ── Integration test #15 (TDD doc) ──────────────────────────────────────────
   // SPEC: Successful recruit attempt moves card from pool → initiates (2-turn timer).
   // This test uses a state with a high leaderSkillLevel to bypass the known
@@ -188,7 +194,9 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     // d10 rolls 7 (>= card value 3 → success under either the correct or
     // current buggy formula when leaderSkillLevel = 5)
     Dice.setProvider(() => Promise.resolve(7));
-    await App.attemptRecruit(0);
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -207,7 +215,9 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     // d10 rolls 2; even with buggy leaderSkillLevel addition (2+5=7) that is
     // still < 15, so both correct and buggy logic should produce a failure
     Dice.setProvider(() => Promise.resolve(2));
-    await App.attemptRecruit(0);
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -230,7 +240,9 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
 
     // Roll 10 on d10 — should succeed (10 >= 4) if the attempt is allowed
     Dice.setProvider(() => Promise.resolve(10));
-    await App.attemptRecruit(0);
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -255,7 +267,9 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
 
     // Roll 5 on d10 — correct: 5 < 8 → FAIL; buggy: 5+10=15 >= 8 → SUCCESS
     Dice.setProvider(() => Promise.resolve(5));
-    await App.attemptRecruit(0);
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -263,6 +277,79 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
       'card should stay in pool — roll of 5 is below card value 8');
     TestRunner.assertEqual(appState.initiates.length, 0,
       'no card should be added to initiates on a failed roll');
+  });
+
+  // ── Base die: d10 vs d12 (Supply-spend) ─────────────────────────────────────
+
+  TestRunner.test('choosing d12 spends 1 Supply and rolls a d12', async function () {
+    const state = bootTestGame({ supplies: 5 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    let rolledDie = null;
+    Dice.setProvider((dieType) => {
+      rolledDie = dieType;
+      return Promise.resolve(7);
+    });
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d12');
+    await promise;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(rolledDie, 'd12', 'base die should be d12');
+    TestRunner.assertEqual(App.getState().supplies, 4, 'spending d12 costs 1 Supply');
+  });
+
+  TestRunner.test('choosing d10 does not spend a Supply', async function () {
+    const state = bootTestGame({ supplies: 5 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    Dice.setProvider(() => Promise.resolve(7));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(App.getState().supplies, 5, 'choosing d10 spends no Supply');
+  });
+
+  TestRunner.test('d12 choice is disabled when the player has no Supplies', async function () {
+    const state = bootTestGame({ supplies: 0 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    Dice.setProvider(() => Promise.resolve(7));
+    const promise = App.attemptRecruit(0);
+    const overlay = document.querySelector('.modal-overlay');
+    const d12Button = overlay.querySelector('button[data-choice="d12"]');
+    TestRunner.assert(d12Button.disabled, 'd12 option should be disabled with 0 Supplies');
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+  });
+
+  // ── Eligibility (issue #12, bullet 4) ───────────────────────────────────────
+  // SPEC: The Leader can always attempt Recruitment (CONTEXT.md), regardless of
+  // leaderSkillLevel or the value of any current Operatives. This flow has no
+  // per-Operative attempter selection, so a low-value roster never blocks the
+  // attempt — only the dice roll vs. the card's value determines success.
+  TestRunner.test('[spec] recruit attempt is never blocked by low-value Operatives or Leader skill', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    const target = { suit: 'hearts', rank: '10', value: 10 };
+    state.recruitPool = [target];
+    state.operatives  = [{ suit: 'clubs', rank: '2', value: 2 }];
+
+    Dice.setProvider(() => Promise.resolve(10));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 0,
+      'attempt should proceed and succeed despite leaderSkillLevel=0 and a low-value Operative');
+    TestRunner.assertEqual(appState.initiates.length, 1);
   });
 
 });
