@@ -80,11 +80,19 @@ const Operations = (() => {
 
   /**
    * Resolve a Compound Failure's second, player-chosen bullet: detain 1 more
-   * operative, or lose 2 supplies instead.
-   * @param {object} options - { secondPenaltyChoice: 'detain' | 'supplies' }
+   * operative, or lose 2 supplies instead. The choice is either supplied
+   * synchronously up front (`options.secondPenaltyChoice`, used by engine
+   * tests and AI simulation strategies that pre-decide) or fetched lazily via
+   * an async callback (`options.getSecondPenaltyChoice`, used by the UI so a
+   * choice modal only appears once a failure is confirmed, not on every
+   * attempt).
+   * @param {object} options - { secondPenaltyChoice?: 'detain' | 'supplies', getSecondPenaltyChoice?: () => Promise<'detain' | 'supplies'> }
    */
-  function resolveCompoundChoice(state, operatives, options, detainTurns) {
-    const choice = (options && options.secondPenaltyChoice) || 'detain';
+  async function resolveCompoundChoice(state, operatives, options, detainTurns) {
+    let choice = (options && options.secondPenaltyChoice) || 'detain';
+    if (options && typeof options.getSecondPenaltyChoice === 'function') {
+      choice = await options.getSecondPenaltyChoice();
+    }
     if (choice === 'detain') {
       detainOperatives(state, operatives, 1, detainTurns);
     } else {
@@ -173,7 +181,7 @@ const Operations = (() => {
       detainOperatives(state, operatives, 1, 2);
 
       // Bullet 2: player choice
-      resolveCompoundChoice(state, operatives, options, 2);
+      await resolveCompoundChoice(state, operatives, options, 2);
     }
 
     return { roll, success };
@@ -250,7 +258,7 @@ const Operations = (() => {
       detainOperatives(state, operatives, 1, 1);
 
       // Bullet 2: player choice
-      resolveCompoundChoice(state, operatives, options, 1);
+      await resolveCompoundChoice(state, operatives, options, 1);
     }
 
     // Any assigned operative not detained (all of them on success, survivors

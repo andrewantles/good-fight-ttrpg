@@ -307,6 +307,47 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     }
   });
 
+  TestRunner.test('failure (real engine): no resource change, log reflects failure not success', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 90; // forces the d100 roll to fail (checkBasic: roll <= 100 - heat)
+    const operative = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(App.getState().influence, 0, 'no influence gained on failure');
+      TestRunner.assertEqual(App.getState().heat, 90, 'heat unchanged (still the forced-failure value) on failure');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Minor Vandalism failed/.test(log), 'log reflects the failure, not the success message');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
 });
 
 TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
@@ -375,7 +416,7 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
 
 TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function () {
 
-  TestRunner.test('Significant Vandalism passes the compoundFailureChoice modal result as secondPenaltyChoice', async function () {
+  function setupSignificantVandalismDOM() {
     const container = document.getElementById('app');
     container.innerHTML = `
       <div data-screen="setup" class="screen"></div>
@@ -391,7 +432,12 @@ TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function 
     const op3 = { suit: 'clubs', rank: 'K', value: 13 };
     const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
     App.getState().operatives.push(op1, op2, op3, op4);
-    GameState.addSupplies(App.getState(), 5);
+    GameState.addSupplies(App.getState(), 10);
+  }
+
+  TestRunner.test('on failure: shows the compoundFailureChoice modal and applies its result as the second penalty', async function () {
+    setupSignificantVandalismDOM();
+    App.getState().heat = 90; // forces the d100 roll to fail
     App.renderGameState();
 
     const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
@@ -399,9 +445,7 @@ TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function 
 
     const originalAssign = UI.assignOperatives;
     const originalChoice = UI.compoundFailureChoice;
-    const originalResolve = Operations.resolveSignificantVandalism;
     let choiceModalShown = false;
-    let receivedOptions = null;
     UI.assignOperatives = async function (count, available) {
       return available.slice(0, count);
     };
@@ -409,23 +453,60 @@ TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function 
       choiceModalShown = true;
       return 'supplies';
     };
-    Operations.resolveSignificantVandalism = async function (state, operatives, options) {
-      receivedOptions = options;
-      return { roll: 99, success: false };
-    };
 
     try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
       btn.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      TestRunner.assert(choiceModalShown, 'compoundFailureChoice modal was shown');
-      TestRunner.assert(receivedOptions !== null, 'options object was passed to resolveSignificantVandalism');
-      TestRunner.assertEqual(receivedOptions.secondPenaltyChoice, 'supplies',
-        'the modal choice was passed through as secondPenaltyChoice');
+      TestRunner.assert(choiceModalShown, 'compoundFailureChoice modal was shown on failure');
+      TestRunner.assertEqual(App.getState().detainedOperatives.length, 1,
+        'bullet 1: 1 operative detained');
+      TestRunner.assertEqual(App.getState().supplies, 3,
+        'bullet 2: the modal\'s "supplies" choice was applied (-5 cost, -2 second penalty)');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism failed/.test(log), 'log reflects the failure');
     } finally {
+      Dice.setProvider(null);
       UI.assignOperatives = originalAssign;
       UI.compoundFailureChoice = originalChoice;
-      Operations.resolveSignificantVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('on success: never shows the compoundFailureChoice modal', async function () {
+    setupSignificantVandalismDOM();
+    App.getState().heat = 0; // guarantees the d100 roll succeeds
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
+    let choiceModalShown = false;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      choiceModalShown = true;
+      return 'supplies';
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(1)); // 1 <= 100: success
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(!choiceModalShown, 'compoundFailureChoice modal was NOT shown on success');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism succeeded/.test(log), 'log reflects the success');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
       GameState.deleteSave('current');
     }
   });
@@ -565,6 +646,54 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
     } finally {
       UI.assignOperatives = originalAssign;
       Operations.resolveAverageVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('failure (real engine): detains 1 operative and reflects it in the personnel panel and log', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 90; // forces the d100 roll to fail (checkBasic: roll <= 100 - heat)
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(op1, op2);
+    GameState.addSupplies(App.getState(), 3);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(App.getState().detainedOperatives.length, 1, 'real engine detained 1 operative');
+      TestRunner.assertEqual(App.getState().operatives.length, 1, 'detained operative removed from the available pool');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Average Vandalism failed/.test(log), 'log reflects the failure, not the success message');
+
+      const detainedPanel = document.querySelector('#section-detained .card-list').textContent;
+      TestRunner.assert(detainedPanel.trim().length > 0, 'detained operative appears in the Detained panel');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
       GameState.deleteSave('current');
     }
   });

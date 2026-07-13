@@ -630,6 +630,40 @@ TestRunner.describe('operations.js — Significant Vandalism', function () {
     TestRunner.assertEqual(state.supplies, 3, 'supplies: -5 cost + -2 second penalty');
   });
 
+  TestRunner.test('getSecondPenaltyChoice callback: invoked on failure, its resolved choice is applied', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    let callbackInvoked = false;
+    const getSecondPenaltyChoice = async () => {
+      callbackInvoked = true;
+      return 'supplies';
+    };
+    // d100=99 (failure)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveSignificantVandalism(state, ops, { getSecondPenaltyChoice });
+    Dice.setProvider(null);
+    TestRunner.assert(callbackInvoked, 'callback was invoked on failure');
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained (bullet 1)');
+    TestRunner.assertEqual(state.supplies, 3, 'supplies penalty from callback-resolved choice applied');
+  });
+
+  TestRunner.test('getSecondPenaltyChoice callback: NOT invoked on success', async function () {
+    const state = bootTestGame({ heat: 10, influence: 0, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    let callbackInvoked = false;
+    const getSecondPenaltyChoice = async () => {
+      callbackInvoked = true;
+      return 'supplies';
+    };
+    // d100=5 (success: 5 <= 90)
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveSignificantVandalism(state, ops, { getSecondPenaltyChoice });
+    Dice.setProvider(null);
+    TestRunner.assert(!callbackInvoked, 'callback was NOT invoked when the operation succeeds');
+  });
+
 });
 
 // ─── Suite 9: Operations — Gather Supplies Resolution ─────────────────────────

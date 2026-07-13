@@ -305,12 +305,11 @@ const App = (() => {
    * pool, failure detains 1 Operative for 2 turns plus a Compound-Failure
    * second penalty), then reflect resources / log / personnel in the DOM.
    *
-   * The Compound-Failure second penalty is a pre-committed player choice
-   * (detain 1 more Operative vs. lose 2 Supplies) supplied via the #37 modal.
-   * The engine (resolveSignificantVandalism) rolls internally and only exercises
-   * the choice on failure, so — matching the simulation contract where a
-   * strategy pre-commits this choice before the roll (#19) — we gather it up
-   * front and pass it in as `secondPenaltyChoice`.
+   * The Compound-Failure second penalty is a player choice (detain 1 more
+   * Operative vs. lose 2 Supplies) surfaced via the #37 modal. The engine
+   * only exercises this choice on failure, so we pass `getSecondPenaltyChoice`
+   * — the modal is shown lazily inside the engine's failure branch, never on
+   * a successful roll.
    */
   async function executeSignificantVandalism() {
     if (!gameState) return;
@@ -318,10 +317,12 @@ const App = (() => {
     const operatives = await UI.assignOperatives(4, gameState.operatives);
     if (!operatives || operatives.length !== 4) return;
 
-    const secondPenaltyChoice = await UI.compoundFailureChoice();
-
+    let secondPenaltyChoice = null;
     const result = await Operations.resolveSignificantVandalism(gameState, operatives, {
-      secondPenaltyChoice,
+      getSecondPenaltyChoice: async () => {
+        secondPenaltyChoice = await UI.compoundFailureChoice();
+        return secondPenaltyChoice;
+      },
     });
 
     if (result.success) {
