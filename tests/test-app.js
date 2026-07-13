@@ -156,3 +156,1156 @@ TestRunner.describe('app.js — Setup Tables', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Setup Difficulty', function () {
+
+  // Set up the minimal DOM beginGame() touches: a difficulty select plus
+  // the data-screen containers showScreen() toggles.
+  function setupDifficultyScreen(difficulty) {
+    const container = document.getElementById('app');
+    if (!container) return;
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <select id="input-difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    document.getElementById('input-difficulty').value = difficulty;
+  }
+
+  TestRunner.test('beginGame captures the selected difficulty into state', function () {
+    setupDifficultyScreen('hard');
+    App.beginGame();
+    TestRunner.assertEqual(App.getState().difficulty, 'hard');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('beginGame defaults difficulty to medium when no select present', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    App.beginGame();
+    TestRunner.assertEqual(App.getState().difficulty, 'medium');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('chosen difficulty persists through save/load', function () {
+    setupDifficultyScreen('easy');
+    App.beginGame();
+    const loaded = GameState.load('current');
+    TestRunner.assertEqual(loaded.difficulty, 'easy');
+    GameState.deleteSave('current');
+  });
+
+});
+
+TestRunner.describe('app.js — End Turn wiring (#20)', function () {
+
+  TestRunner.test('clicking End Turn runs processEndOfTurn then resolveCrackdown then increments the turn', async function () {
+    // DOM: the End Turn button living inside a game screen container.
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-end-turn">End Turn</button>
+      </div>
+    `;
+
+    App.init();      // wires the #btn-end-turn click handler
+    App.beginGame(); // establishes gameState (currentTurn starts at 1)
+
+    // Stub the two engine steps to record invocation order without side effects.
+    const calls = [];
+    const originalProcess = Turn.processEndOfTurn;
+    const originalCrackdown = Crackdown.resolveCrackdown;
+    Turn.processEndOfTurn = async function () { calls.push('turn'); };
+    Crackdown.resolveCrackdown = async function () {
+      calls.push('crackdown');
+      return {
+        roll: 0, triggered: false, tier: null,
+        penalties: { operatives: 0, initiates: 0, supplies: 0, influence: 0 },
+      };
+    };
+
+    try {
+      document.getElementById('btn-end-turn').click();
+      // Let the async handler chain settle (macrotask drains the microtask queue).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(calls.length, 2, 'both engine steps ran');
+      TestRunner.assertEqual(calls[0], 'turn', 'timers/multi-turn resolved first');
+      TestRunner.assertEqual(calls[1], 'crackdown', 'crackdown/heat reduction second');
+      TestRunner.assertEqual(App.getState().currentTurn, 2, 'turn counter incremented after the sequence');
+    } finally {
+      Turn.processEndOfTurn = originalProcess;
+      Crackdown.resolveCrackdown = originalCrackdown;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Victory screen (#22)', function () {
+
+  TestRunner.test('End Turn that completes a 3rd Late-Game Op (real engine) routes to the Victory screen with stats', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <button id="btn-end-turn">End Turn</button>
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen">
+        <div id="victory-stats"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const s = App.getState();
+
+    // Two distinct Late-Game Ops already done; a 3rd is mid-flight and resolves
+    // this End Turn. Completing it flips the real Victory flag.
+    s.completedLateGameOps = [{ type: 'neutralize_leadership' }, { type: 'news_agency' }];
+    const opC = { tableRoll: 6, type: 'provisional_government' };
+    s.availableLateGameOps = [opC];
+    const assigned = Array.from({ length: 12 }, () => ({ suit: 'hearts', rank: '2', value: 2 }));
+    s.multiTurnOps = [{
+      operation: 'late_game_op', turnsRemaining: 1,
+      assignedOperatives: assigned, opportunity: opC,
+    }];
+    s.heat = 0;               // ensures the d100 check succeeds
+    s.currentTurn = 7;        // "turns taken" should report the turn victory landed on
+    s.peakInfluence = 300;    // an earlier high, larger than the +50 this op adds
+    s.operativesLost = 4;     // prior losses
+
+    Dice.setProvider(() => Promise.resolve(5)); // small roll -> success
+    try {
+      await App.endTurn();
+
+      TestRunner.assert(s.victory, 'the real engine set the Victory flag');
+      TestRunner.assertEqual(App.currentScreen(), 'victory', 'routed to the Victory screen');
+      TestRunner.assertEqual(s.currentTurn, 7, 'turn counter not advanced past the winning turn');
+
+      const stats = document.getElementById('victory-stats').textContent;
+      TestRunner.assert(/7/.test(stats), 'shows turns taken (7)');
+      TestRunner.assert(/4/.test(stats), 'shows operatives lost (4)');
+      TestRunner.assert(/300/.test(stats), 'shows peak Influence (300)');
+    } finally {
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('End Turn with no Victory stays on the game screen', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen">
+        <div id="victory-stats"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.showScreen('game');
+    try {
+      await App.endTurn();
+      TestRunner.assert(!App.getState().victory, 'no victory');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'still on the game screen');
+      TestRunner.assertEqual(App.getState().currentTurn, 2, 'turn advanced normally');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
+
+  TestRunner.test('renders a Minor Vandalism button when executable and clicking it reaches resolveMinorVandalism', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives)
+
+    // With zero operatives available, Minor Vandalism is not executable and
+    // no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="minor_vandalism"]'),
+      'no Minor Vandalism button when there are no available operatives'
+    );
+
+    // Give the player one available operative so Minor Vandalism becomes executable.
+    const operative = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    // Stub the picker to auto-return the operative and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveMinorVandalism;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveMinorVandalism = async function (state, operatives) {
+      received = operatives;
+      return { roll: 1, success: true };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveMinorVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('failure (real engine): no resource change, log reflects failure not success', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 90; // forces the d100 roll to fail (checkBasic: roll <= 100 - heat)
+    const operative = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(App.getState().influence, 0, 'no influence gained on failure');
+      TestRunner.assertEqual(App.getState().heat, 90, 'heat unchanged (still the forced-failure value) on failure');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Minor Vandalism failed/.test(log), 'log reflects the failure, not the success message');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
+
+  TestRunner.test('renders a Gather Supplies button when executable and clicking it reaches resolveGatherSupplies', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives)
+
+    // With zero operatives available, Gather Supplies is not executable and
+    // no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="gather_supplies"]'),
+      'no Gather Supplies button when there are no available operatives'
+    );
+
+    // Give the player one available operative so Gather Supplies becomes executable.
+    const operative = { suit: 'clubs', rank: 'K', value: 13 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
+    TestRunner.assert(btn, 'Gather Supplies button should render when executable');
+
+    // Stub the picker to auto-return the operative and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveGatherSupplies;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveGatherSupplies = async function (state, operatives) {
+      received = operatives;
+      return { rolls: [{ roll: 5, success: true }, { roll: 99, success: false }, { roll: 12, success: true }], gained: 2 };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveGatherSupplies was called by the click');
+      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
+
+      // Log reflects the 3-roll result.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Gather Supplies/.test(log), 'log mentions Gather Supplies');
+      TestRunner.assert(/2/.test(log), 'log reflects the number of supplies gained');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveGatherSupplies = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function () {
+
+  function setupSignificantVandalismDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    GameState.addSupplies(App.getState(), 10);
+  }
+
+  TestRunner.test('on failure: shows the compoundFailureChoice modal and applies its result as the second penalty', async function () {
+    setupSignificantVandalismDOM();
+    App.getState().heat = 90; // forces the d100 roll to fail
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
+    let choiceModalShown = false;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      choiceModalShown = true;
+      return 'supplies';
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(choiceModalShown, 'compoundFailureChoice modal was shown on failure');
+      TestRunner.assertEqual(App.getState().detainedOperatives.length, 1,
+        'bullet 1: 1 operative detained');
+      TestRunner.assertEqual(App.getState().supplies, 3,
+        'bullet 2: the modal\'s "supplies" choice was applied (-5 cost, -2 second penalty)');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism failed/.test(log), 'log reflects the failure');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('on success: never shows the compoundFailureChoice modal', async function () {
+    setupSignificantVandalismDOM();
+    App.getState().heat = 0; // guarantees the d100 roll succeeds
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
+    let choiceModalShown = false;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      choiceModalShown = true;
+      return 'supplies';
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(1)); // 1 <= 100: success
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(!choiceModalShown, 'compoundFailureChoice modal was NOT shown on success');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism succeeded/.test(log), 'log reflects the success');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function () {
+
+  TestRunner.test('renders a Significant Vandalism button when executable and clicking it reaches resolveSignificantVandalism', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
+
+    // With zero operatives / supplies, Significant Vandalism (needs 4 operatives,
+    // 5 supplies) is not executable and no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="significant_vandalism"]'),
+      'no Significant Vandalism button when there are no available operatives'
+    );
+
+    // Give the player four available operatives and enough supplies.
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    GameState.addSupplies(App.getState(), 5);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    // Stub the picker to auto-return operatives and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
+    const originalResolve = Operations.resolveSignificantVandalism;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      return 'detain';
+    };
+    Operations.resolveSignificantVandalism = async function (state, operatives, options) {
+      received = operatives;
+      return { roll: 10, success: true };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveSignificantVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 4, 'exactly four operatives assigned (K=4)');
+      TestRunner.assertEqual(received[0], op1, 'the first picked operative was passed to the engine');
+      TestRunner.assertEqual(received[3], op4, 'the fourth picked operative was passed to the engine');
+
+      // Log reflects the Significant Vandalism result.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism/.test(log), 'log mentions Significant Vandalism');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
+      Operations.resolveSignificantVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
+
+  TestRunner.test('renders an Average Vandalism button when executable and clicking it reaches resolveAverageVandalism', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
+
+    // With zero operatives / supplies, Average Vandalism (needs 2 operatives,
+    // 3 supplies) is not executable and no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="average_vandalism"]'),
+      'no Average Vandalism button when there are no available operatives'
+    );
+
+    // Give the player two available operatives and enough supplies.
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(op1, op2);
+    GameState.addSupplies(App.getState(), 3);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+
+    // Stub the picker to auto-return operatives and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveAverageVandalism;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveAverageVandalism = async function (state, operatives) {
+      received = operatives;
+      return { roll: 10, success: true };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveAverageVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 2, 'exactly two operatives assigned (K=2)');
+      TestRunner.assertEqual(received[0], op1, 'the first picked operative was passed to the engine');
+      TestRunner.assertEqual(received[1], op2, 'the second picked operative was passed to the engine');
+
+      // Log reflects the Average Vandalism result.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Average Vandalism/.test(log), 'log mentions Average Vandalism');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveAverageVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('failure (real engine): detains 1 operative and reflects it in the personnel panel and log', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 90; // forces the d100 roll to fail (checkBasic: roll <= 100 - heat)
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(op1, op2);
+    GameState.addSupplies(App.getState(), 3);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+
+    try {
+      Dice.setProvider(() => Promise.resolve(99)); // 99 > (100 - 90): failure
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(App.getState().detainedOperatives.length, 1, 'real engine detained 1 operative');
+      TestRunner.assertEqual(App.getState().operatives.length, 1, 'detained operative removed from the available pool');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Average Vandalism failed/.test(log), 'log reflects the failure, not the success message');
+
+      const detainedPanel = document.querySelector('#section-detained .card-list').textContent;
+      TestRunner.assert(detainedPanel.trim().length > 0, 'detained operative appears in the Detained panel');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
+
+  function setupScoutDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('button gated by canExecute: hidden without 4 operatives + 5 supplies, shown with them', function () {
+    setupScoutDOM();
+
+    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies) unavailable.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="scout"]'),
+      'no Scout button when there are no available operatives'
+    );
+
+    // Four operatives but no supplies — still unavailable.
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="scout"]'),
+      'no Scout button with 4 operatives but 0 supplies'
+    );
+
+    // Add the 5 supplies — now Scout is available.
+    GameState.addSupplies(App.getState(), 5);
+    App.renderGameState();
+    TestRunner.assert(
+      document.querySelector('#operations-list [data-operation="scout"]'),
+      'Scout button renders with 4 operatives and 5 supplies'
+    );
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('click (real engine): assigns 4 operatives, spends 5 supplies, and shows the multi-turn Scout op in the DOM', async function () {
+    setupScoutDOM();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    const op5 = { suit: 'spades', rank: '2', value: 2 }; // a fifth, un-assigned operative
+    App.getState().operatives.push(op1, op2, op3, op4, op5);
+    GameState.addSupplies(App.getState(), 8); // 8 supplies; Scout should consume 5
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(btn, 'Scout button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count); // deterministic: first K
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const state = App.getState();
+
+      // Real engine effects (Operations.startScout is deterministic, no roll).
+      TestRunner.assertEqual(state.supplies, 3, 'Scout spent 5 supplies (8 - 5)');
+      TestRunner.assertEqual(state.operatives.length, 1,
+        'four operatives removed from the available pool, fifth remains');
+      TestRunner.assertEqual(state.operatives[0], op5,
+        'the un-assigned operative stays available');
+      TestRunner.assertEqual(state.multiTurnOps.length, 1, 'one multi-turn op created');
+      TestRunner.assertEqual(state.multiTurnOps[0].operation, 'scout', 'the multi-turn op is Scout');
+      TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 2, 'Scout runs for 2 turns');
+      TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 4,
+        'four operatives locked into the Scout op');
+
+      // Assigned operatives removed from the personnel display.
+      const opsPanel = document.querySelector('#section-operatives .card-list').textContent;
+      TestRunner.assert(!/Q/.test(opsPanel),
+        'an assigned operative (Q of hearts) no longer appears in the Operatives panel');
+
+      // Multi-turn Scout op reflected in the operations DOM.
+      const opsList = document.getElementById('operations-list').textContent;
+      TestRunner.assert(/Scout/i.test(opsList) && /2 turn/i.test(opsList),
+        'the operations panel shows the in-progress Scout op with its turn countdown');
+
+      // Log reflects the started Scout op.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Scout/i.test(log), 'log mentions the Scout op');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Unwinnable Advisory (#14)', function () {
+
+  // Builds a game screen containing the advisory banner + a live game state.
+  function setupGameWithAdvisory() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <div id="unwinnable-advisory" class="advisory" hidden>
+          <span class="advisory-text"></span>
+          <button id="btn-dismiss-advisory">&times;</button>
+        </div>
+        <div id="operations-list"></div>
+        <div id="section-recruit-pool"><div class="card-list"></div></div>
+        <div id="section-initiates"><div class="card-list"></div></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame(); // fresh state; overwrite deck/pool below per-test
+  }
+
+  TestRunner.test('advisory appears when no operatives, no recruit pool, empty deck', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(!advisory.hidden, 'advisory should be visible when all three conditions hold');
+  });
+
+  TestRunner.test('advisory stays hidden when an operative remains', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [{ suit: 'spades', rank: 'A', value: 14 }];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while an operative remains');
+  });
+
+  TestRunner.test('advisory stays hidden when recruit pool is non-empty', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [{ suit: 'hearts', rank: '2', value: 2 }];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while the recruit pool has cards');
+  });
+
+  TestRunner.test('advisory stays hidden when the recruitment deck is non-empty', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [{ suit: 'clubs', rank: '3', value: 3 }];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while the recruitment deck has cards');
+  });
+
+  TestRunner.test('dismissing hides the advisory without changing screen or state', function () {
+    setupGameWithAdvisory();
+    App.showScreen('game');
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(!advisory.hidden, 'advisory visible before dismiss');
+
+    document.getElementById('btn-dismiss-advisory').click();
+
+    TestRunner.assert(advisory.hidden, 'advisory hidden after dismiss');
+    TestRunner.assertEqual(App.currentScreen(), 'game', 'play continues on the game screen (non-blocking)');
+
+    // Dismissal survives a re-render while the conditions still hold.
+    App.renderGameState();
+    TestRunner.assert(advisory.hidden, 'advisory stays dismissed on re-render while conditions persist');
+  });
+
+  TestRunner.test('advisory can reappear after conditions clear and recur', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+    App.renderGameState();
+
+    document.getElementById('btn-dismiss-advisory').click();
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'dismissed');
+
+    // Conditions clear (player gains an operative), then recur.
+    state.operatives = [{ suit: 'spades', rank: 'A', value: 14 }];
+    App.renderGameState();
+    TestRunner.assert(advisory.hidden, 'still hidden while conditions do not hold');
+
+    state.operatives = [];
+    App.renderGameState();
+    TestRunner.assert(!advisory.hidden, 'advisory reappears once the position is stuck again');
+  });
+
+});
+
+TestRunner.describe('app.js — Settings gear: mid-game Input Mode toggle (#40)', function () {
+
+  // Builds a game screen containing the Settings gear button.
+  function setupSettingsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+      </div>
+    `;
+    App.init();      // wires the #btn-settings click handler
+    App.beginGame(); // establishes gameState (default inputMode: digital/digital)
+  }
+
+  TestRunner.test('clicking the gear opens a settings modal seeded from current inputMode', function () {
+    setupSettingsDOM();
+
+    // No modal before the click.
+    TestRunner.assert(!document.querySelector('.modal-overlay'),
+      'no settings modal before the gear is clicked');
+
+    document.getElementById('btn-settings').click();
+
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay, 'clicking the gear opens a .modal-overlay');
+
+    const diceSelect = overlay.querySelector('[data-settings-dice]');
+    const cardsSelect = overlay.querySelector('[data-settings-cards]');
+    TestRunner.assert(diceSelect && cardsSelect,
+      'modal has dice and cards Input Mode selects');
+    TestRunner.assertEqual(diceSelect.value, 'digital',
+      'dice select seeded from current inputMode.dice');
+    TestRunner.assertEqual(cardsSelect.value, 'digital',
+      'cards select seeded from current inputMode.cards');
+
+    overlay.remove();
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('applying a change updates inputMode, re-syncs providers (real effect), persists, and closes', async function () {
+    setupSettingsDOM();
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    // Switch dice to physical, leave cards digital.
+    const diceSelect = overlay.querySelector('[data-settings-dice]');
+    diceSelect.value = 'physical';
+
+    // Spy on the physical dice provider so we can prove syncInputProviders
+    // actually re-wired Dice to it (rather than asserting an internal call).
+    const originalDiceInput = UI.diceInput;
+    let providerCalled = false;
+    UI.diceInput = function () {
+      providerCalled = true;
+      return Promise.resolve(4);
+    };
+
+    try {
+      overlay.querySelector('[data-settings-apply]').click();
+
+      // State updated.
+      TestRunner.assertEqual(App.getState().inputMode.dice, 'physical',
+        'inputMode.dice updated to physical');
+      TestRunner.assertEqual(App.getState().inputMode.cards, 'digital',
+        'inputMode.cards left unchanged');
+
+      // Persisted to the current slot.
+      const saved = GameState.load('current');
+      TestRunner.assertEqual(saved.inputMode.dice, 'physical',
+        'change persisted through GameState.save/load');
+
+      // Modal closed.
+      TestRunner.assert(!document.querySelector('.modal-overlay'),
+        'settings modal closes after Apply');
+
+      // Real effect: the next Dice.roll now routes through the physical provider.
+      await Dice.roll('d6');
+      TestRunner.assert(providerCalled,
+        'syncInputProviders re-wired Dice to the physical provider after Apply');
+    } finally {
+      UI.diceInput = originalDiceInput;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Settings gear: save-slot management panel (#41)', function () {
+
+  // Builds a game screen with the Settings gear plus a couple of the resource
+  // fields renderGameState() writes to, so we can prove a Load actually
+  // re-renders the active game (not just swaps internal state).
+  function setupSlotsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+        <span id="val-influence"></span>
+      </div>
+    `;
+    App.init();
+    App.beginGame(); // establishes gameState + autosaves to the 'current' slot
+  }
+
+  // Remove every save slot so tests don't leak state into one another
+  // (localStorage is shared across the whole happy-dom run).
+  function clearAllSlots() {
+    GameState.listSaves().forEach((name) => GameState.deleteSave(name));
+  }
+
+  TestRunner.test('modal lists existing named slots via GameState.listSaves (hides internal current autosave)', function () {
+    setupSlotsDOM();
+    // Seed two named slots; beginGame already wrote the 'current' autosave.
+    GameState.save(App.getState(), 'alpha');
+    GameState.save(App.getState(), 'beta');
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    const slots = overlay.querySelector('[data-settings-slots]');
+    TestRunner.assert(slots, 'modal has a save-slot list container');
+    const text = slots.textContent;
+    TestRunner.assert(text.includes('alpha'), 'named slot alpha is listed');
+    TestRunner.assert(text.includes('beta'), 'named slot beta is listed');
+    TestRunner.assert(!text.includes('current'),
+      "internal 'current' autosave slot is not exposed in the manager");
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+});
+
+TestRunner.describe('app.js — Settings gear: save-slot save/load/delete (#41 real engine)', function () {
+
+  function setupSlotsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+        <span id="val-influence"></span>
+      </div>
+    `;
+    App.init();
+    App.beginGame();
+  }
+
+  function clearAllSlots() {
+    GameState.listSaves().forEach((name) => GameState.deleteSave(name));
+  }
+
+  TestRunner.test('Save button persists the current game to the named slot and lists it (real engine)', function () {
+    setupSlotsDOM();
+    App.getState().influence = 42; // mutate the live game before saving
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('[data-settings-slot-name]').value = 'mygame';
+    overlay.querySelector('[data-settings-save]').click();
+
+    // Real persistence: the slot now holds the live game's state.
+    const saved = GameState.load('mygame');
+    TestRunner.assert(saved, 'GameState.load returns the saved slot');
+    TestRunner.assertEqual(saved.influence, 42, 'saved slot captured live influence');
+
+    // The new slot appears in the refreshed list.
+    TestRunner.assert(
+      overlay.querySelector('[data-settings-slots]').textContent.includes('mygame'),
+      'saved slot appears in the list without reopening the modal');
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+  TestRunner.test('blank or reserved "current" slot names do not save (guard)', function () {
+    setupSlotsDOM();
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    overlay.querySelector('[data-settings-slot-name]').value = '   ';
+    overlay.querySelector('[data-settings-save]').click();
+    TestRunner.assertEqual(GameState.listSaves().filter((n) => n !== 'current').length, 0,
+      'blank name creates no slot');
+
+    overlay.querySelector('[data-settings-slot-name]').value = 'current';
+    overlay.querySelector('[data-settings-save]').click();
+    // Only the autosave 'current' should exist — no duplicate/clobber created here.
+    const beforeInfluence = GameState.load('current').influence;
+    TestRunner.assert(typeof beforeInfluence === 'number',
+      "reserved 'current' name is not treated as a user slot");
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+  TestRunner.test('Load button swaps the active game to the slot and re-renders the screen (real engine)', function () {
+    setupSlotsDOM();
+    // Snapshot a game with influence 10 into a slot.
+    App.getState().influence = 10;
+    GameState.save(App.getState(), 'snap');
+    // Diverge the live game.
+    App.getState().influence = 3;
+    document.getElementById('val-influence').textContent = '3';
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('[data-settings-load="snap"]').click();
+
+    // Active state actually replaced with the loaded slot.
+    TestRunner.assertEqual(App.getState().influence, 10,
+      'active game influence loaded from the slot');
+    // Re-render reflected in the DOM.
+    TestRunner.assertEqual(document.getElementById('val-influence').textContent, '10',
+      'renderGameState ran after load, updating the resource display');
+    // Loaded game adopted as the live autosave.
+    TestRunner.assertEqual(GameState.load('current').influence, 10,
+      "loaded game becomes the 'current' autosave");
+    // Modal closed.
+    TestRunner.assert(!document.querySelector('.modal-overlay'),
+      'settings modal closes after Load');
+
+    clearAllSlots();
+  });
+
+  TestRunner.test('Delete button removes the slot from storage and the list (real engine)', function () {
+    setupSlotsDOM();
+    GameState.save(App.getState(), 'gone');
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay.querySelector('[data-settings-slots]').textContent.includes('gone'),
+      'slot present before delete');
+
+    overlay.querySelector('[data-settings-delete="gone"]').click();
+
+    TestRunner.assertEqual(GameState.load('gone'), null,
+      'slot removed from storage (real engine)');
+    TestRunner.assert(!overlay.querySelector('[data-settings-slots]').textContent.includes('gone'),
+      'slot removed from the list without reopening');
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+});
+
+TestRunner.describe('app.js — Turn history log panel (#15)', function () {
+
+  function setupGameDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen"></div>
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+        <span id="val-heat"></span>
+        <span id="val-supplies"></span>
+        <span id="val-turn"></span>
+        <span id="val-leader"></span>
+        <div id="operations-list"></div>
+        <div id="turn-log">
+          <p class="placeholder">Events will appear here as you play.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  TestRunner.test('continuing a saved game renders its stored turn history (past turns’ events)', function () {
+    setupGameDOM();
+
+    // A saved game that already has a multi-turn history.
+    const state = GameState.createInitial();
+    state.currentTurn = 3;
+    state.turnLog = [
+      { turn: 1, text: 'Minor Vandalism succeeded: +10 Influence.' },
+      { turn: 2, text: 'Gather Supplies succeeded: +2 Supplies.' },
+      { turn: 2, text: 'Crackdown! Safehouse raid (rolled 40 vs Heat).' },
+    ];
+    GameState.save(state, 'current');
+
+    App.continueGame();
+
+    const logEl = document.getElementById('turn-log');
+    const text = logEl.textContent;
+    // The panel must show every stored event, not the empty placeholder.
+    TestRunner.assert(!/Events will appear here/.test(text),
+      'placeholder is replaced once a loaded game has history');
+    TestRunner.assert(/Minor Vandalism succeeded/.test(text), 'turn 1 event rendered');
+    TestRunner.assert(/Gather Supplies succeeded/.test(text), 'turn 2 event rendered');
+    TestRunner.assert(/Crackdown! Safehouse raid/.test(text), 'second turn-2 event rendered');
+    // Per-turn breakdown: each entry is tagged with its turn number.
+    const entries = logEl.querySelectorAll('.log-entry');
+    TestRunner.assertEqual(entries.length, 3, 'one rendered entry per stored event');
+    TestRunner.assert(/T1/.test(entries[0].textContent), 'first entry tagged with its turn (T1)');
+    TestRunner.assert(/T2/.test(entries[2].textContent), 'later entry tagged with its turn (T2)');
+
+    GameState.deleteSave('current');
+  });
+
+});

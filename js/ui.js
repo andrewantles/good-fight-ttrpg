@@ -133,6 +133,37 @@ const UI = (() => {
   }
 
   /**
+   * Show the Compound Failure second-penalty choice modal: detain 1 more
+   * Operative, or lose 2 Supplies instead. Resolves the `secondPenaltyChoice`
+   * consumed by Operations.resolveSignificantVandalism / resolveScout.
+   * @returns {Promise<'detain'|'supplies'>} Resolves with the chosen penalty
+   */
+  function compoundFailureChoice() {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>Compound Failure — choose your second penalty:</h3>
+          <div class="choice-buttons">
+            <button type="button" data-choice="detain">Detain 1 more Operative</button>
+            <button type="button" data-choice="supplies">Lose 2 Supplies</button>
+          </div>
+        </div>
+      `;
+
+      overlay.querySelectorAll('button[data-choice]').forEach((btn) => {
+        btn.addEventListener('click', function () {
+          const choice = btn.dataset.choice;
+          overlay.remove();
+          resolve(choice);
+        });
+      });
+
+      document.body.appendChild(overlay);
+    });
+  }
+
+  /**
    * Show a picker letting the player select exactly `count` Operatives
    * to assign to an Operation.
    * @param {number} count - Exact number of Operatives to select (K)
@@ -191,5 +222,6 @@ const UI = (() => {
     cardInput,
     recruitDieChoice,
     assignOperatives,
+    compoundFailureChoice,
   };
 })();

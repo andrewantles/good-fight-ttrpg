@@ -78,6 +78,19 @@
           <p class="hint">Digital generates results automatically. Physical prompts you to enter your own dice rolls and card draws.</p>
         </fieldset>
 
+        <fieldset>
+          <legend>Difficulty</legend>
+          <label>
+            Difficulty:
+            <select id="input-difficulty">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+          <p class="hint">Sets the Influence threshold for Mid-Game (30/45/60) and Late-Game (60/90/120) Operation attempts for the whole game.</p>
+        </fieldset>
+
         <button id="btn-begin">Begin</button>
       </div>
     </div>
@@ -110,6 +123,12 @@
           </div>
           <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
         </header>
+
+        <!-- Unwinnable Advisory — non-blocking hint (#14) -->
+        <div id="unwinnable-advisory" class="advisory" hidden>
+          <span class="advisory-text">No Operatives, no Recruit Pool, and an empty Recruitment Deck. Your position is likely stuck &mdash; but you can keep playing.</span>
+          <button id="btn-dismiss-advisory" class="advisory-dismiss" title="Dismiss">&times;</button>
+        </div>
 
         <!-- Main Panels -->
         <div class="game-panels">

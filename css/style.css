@@ -421,6 +421,36 @@ legend {
   font-size: 1rem;
 }
 
+/* --- Settings: save-slot manager (#41) --- */
+
+.modal [data-settings-slots] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.modal .slot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal .slot-row .slot-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal .slot-row button {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+}
+
 /* --- Card Component --- */
 
 .card {
@@ -478,6 +508,20 @@ legend {
 
 /* --- Turn Log --- */
 
+/* Scoped to the log panel only (not the shared .panel) so the "Turn Log"
+   heading stays fixed while the growing turn history scrolls on its own —
+   which also makes renderLog()'s auto-scroll-to-latest meaningful (#15). */
+.panel-log {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-log #turn-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .log-entry {
   font-size: 0.8rem;
   padding: 3px 0;
@@ -492,3 +536,38 @@ legend {
   font-weight: bold;
   margin-right: 6px;
 }
+
+/* Unwinnable Advisory — non-blocking hint banner (#14) */
+.advisory {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--orange);
+  border-left: 4px solid var(--orange);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.advisory[hidden] { display: none; }
+
+.advisory-text {
+  flex: 1;
+  color: var(--yellow);
+  font-size: 0.9rem;
+}
+
+.advisory-dismiss {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.advisory-dismiss:hover { color: var(--text); }

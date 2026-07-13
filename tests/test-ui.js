@@ -191,6 +191,46 @@ TestRunner.describe('ui.js — Card Input', function () {
 
 });
 
+TestRunner.describe('ui.js — Compound Failure Choice (#37)', function () {
+
+  TestRunner.test('compoundFailureChoice creates a modal overlay offering detain and supplies', async function () {
+    const promise = UI.compoundFailureChoice();
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay !== null, 'Modal overlay should exist in DOM');
+    const detainBtn = overlay.querySelector('button[data-choice="detain"]');
+    const suppliesBtn = overlay.querySelector('button[data-choice="supplies"]');
+    TestRunner.assert(detainBtn !== null, 'Detain choice button should exist');
+    TestRunner.assert(suppliesBtn !== null, 'Supplies choice button should exist');
+    detainBtn.click();
+    await promise;
+  });
+
+  TestRunner.test('compoundFailureChoice resolves with "detain" when detain chosen', async function () {
+    const promise = UI.compoundFailureChoice();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('button[data-choice="detain"]').click();
+    const result = await promise;
+    TestRunner.assertEqual(result, 'detain');
+  });
+
+  TestRunner.test('compoundFailureChoice resolves with "supplies" when supplies chosen', async function () {
+    const promise = UI.compoundFailureChoice();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('button[data-choice="supplies"]').click();
+    const result = await promise;
+    TestRunner.assertEqual(result, 'supplies');
+  });
+
+  TestRunner.test('compoundFailureChoice removes the modal from DOM after a choice', async function () {
+    const promise = UI.compoundFailureChoice();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('button[data-choice="detain"]').click();
+    await promise;
+    TestRunner.assert(document.querySelector('.modal-overlay') === null, 'Modal should be removed after a choice');
+  });
+
+});
+
 TestRunner.describe('ui.js — Operative Assignment Picker', function () {
 
   const pool = [

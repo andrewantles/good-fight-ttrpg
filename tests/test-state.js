@@ -25,6 +25,7 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assert(state.inputMode !== undefined);
     TestRunner.assertEqual(state.inputMode.dice, 'digital');
     TestRunner.assertEqual(state.inputMode.cards, 'digital');
+    TestRunner.assertEqual(state.difficulty, 'medium');
   });
 
   TestRunner.test('save() + load() round-trips state without data loss', () => {
@@ -58,6 +59,18 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assertEqual(state.influence, 0);
     GameState.setInfluence(state, 250);
     TestRunner.assertEqual(state.influence, 250);
+  });
+
+  TestRunner.test('peakInfluence tracks the highest Influence ever reached (for the Victory screen)', () => {
+    const state = GameState.createInitial();
+    TestRunner.assertEqual(state.peakInfluence, 0, 'starts at 0');
+    GameState.setInfluence(state, 120);
+    TestRunner.assertEqual(state.peakInfluence, 120, 'rises with Influence');
+    GameState.addInfluence(state, 80);
+    TestRunner.assertEqual(state.peakInfluence, 200, 'tracks via addInfluence too');
+    GameState.setInfluence(state, 50);
+    TestRunner.assertEqual(state.influence, 50, 'Influence dropped');
+    TestRunner.assertEqual(state.peakInfluence, 200, 'peak holds the earlier maximum');
   });
 
   TestRunner.test('setHeat() clamps to 0-100 range', () => {
@@ -101,6 +114,27 @@ TestRunner.describe('state.js — Game State Management', () => {
   TestRunner.test('loading nonexistent slot returns null', () => {
     const result = GameState.load('nonexistent-slot-xyz');
     TestRunner.assertEqual(result, null);
+  });
+
+  TestRunner.test('listSaves() reports every saved slot by name and drops deleted ones', () => {
+    const a = GameState.createInitial();
+    const b = GameState.createInitial();
+    GameState.save(a, 'ls-slot-a');
+    GameState.save(b, 'ls-slot-b');
+
+    let names = GameState.listSaves();
+    TestRunner.assert(names.includes('ls-slot-a'), 'listSaves includes first saved slot');
+    TestRunner.assert(names.includes('ls-slot-b'), 'listSaves includes second saved slot');
+    // Names are the bare slot name, without the storage prefix.
+    TestRunner.assert(!names.some((n) => n.startsWith('good-fight-save-')),
+      'listSaves strips the storage prefix');
+
+    GameState.deleteSave('ls-slot-a');
+    names = GameState.listSaves();
+    TestRunner.assert(!names.includes('ls-slot-a'), 'deleted slot no longer listed');
+    TestRunner.assert(names.includes('ls-slot-b'), 'surviving slot still listed');
+
+    GameState.deleteSave('ls-slot-b');
   });
 
   TestRunner.test('input mode persists across save/load', () => {

@@ -17,10 +17,18 @@ const GameState = (() => {
         cards: 'digital',
       },
 
+      // Difficulty (easy/medium/hard) — gates Mid/Late-Game Operation
+      // Influence thresholds. Chosen once at Setup; has real mechanical effect.
+      difficulty: 'medium',
+
       // Resources
       influence: 0,
       heat: 0,
       supplies: 0,
+
+      // Highest Influence ever reached this game (monotonic; updated by
+      // setInfluence). Reported on the Victory screen.
+      peakInfluence: 0,
 
       // Deck & Personnel
       recruitDeck: [],
@@ -29,6 +37,11 @@ const GameState = (() => {
       operatives: [],
       detainedOperatives: [],
       leaderSkillLevel: 0,
+
+      // Cumulative count of Operatives permanently lost (captured and recycled
+      // to the Recruitment Deck — detainment is temporary and not counted).
+      // Reported on the Victory screen.
+      operativesLost: 0,
 
       // Turn
       currentTurn: 1,
@@ -39,6 +52,10 @@ const GameState = (() => {
       availableMidGameOps: [],
       availableLateGameOps: [],
       completedLateGameOps: [],
+
+      // Victory — set true once 3 distinct Late-Game Operation types are
+      // completed (the game's win condition). Consumed by the Victory screen.
+      victory: false,
 
       // Log
       turnLog: [],
@@ -51,6 +68,7 @@ const GameState = (() => {
 
   function setInfluence(state, value) {
     state.influence = clamp(value, 0, 500);
+    state.peakInfluence = Math.max(state.peakInfluence || 0, state.influence);
   }
 
   function setHeat(state, value) {
