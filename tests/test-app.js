@@ -308,3 +308,67 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
+
+  TestRunner.test('renders a Gather Supplies button when executable and clicking it reaches resolveGatherSupplies', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives)
+
+    // With zero operatives available, Gather Supplies is not executable and
+    // no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="gather_supplies"]'),
+      'no Gather Supplies button when there are no available operatives'
+    );
+
+    // Give the player one available operative so Gather Supplies becomes executable.
+    const operative = { suit: 'clubs', rank: 'K', value: 13 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
+    TestRunner.assert(btn, 'Gather Supplies button should render when executable');
+
+    // Stub the picker to auto-return the operative and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveGatherSupplies;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveGatherSupplies = async function (state, operatives) {
+      received = operatives;
+      return { rolls: [{ roll: 5, success: true }, { roll: 99, success: false }, { roll: 12, success: true }], gained: 2 };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveGatherSupplies was called by the click');
+      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
+
+      // Log reflects the 3-roll result.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Gather Supplies/.test(log), 'log mentions Gather Supplies');
+      TestRunner.assert(/2/.test(log), 'log reflects the number of supplies gained');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveGatherSupplies = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});

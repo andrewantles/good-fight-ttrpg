@@ -205,6 +205,11 @@ const App = (() => {
         '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
       );
     }
+    if (Operations.canExecute('gather_supplies', gameState, gameState.operatives)) {
+      buttons.push(
+        '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
+      );
+    }
 
     if (buttons.length === 0) {
       container.innerHTML = '<p class="placeholder">No operations available.</p>';
@@ -216,6 +221,11 @@ const App = (() => {
     const minorBtn = container.querySelector('[data-operation="minor_vandalism"]');
     if (minorBtn) {
       minorBtn.addEventListener('click', () => executeMinorVandalism());
+    }
+
+    const gatherBtn = container.querySelector('[data-operation="gather_supplies"]');
+    if (gatherBtn) {
+      gatherBtn.addEventListener('click', () => executeGatherSupplies());
     }
   }
 
@@ -236,6 +246,29 @@ const App = (() => {
     } else {
       addLogEntry(`Minor Vandalism failed (rolled ${result.roll}). No effect.`);
     }
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Execute Gather Supplies (#34): pick 1 Operative (K=1), resolve via the
+   * engine (3 d100 rolls, +1 Supply per success), then reflect resources /
+   * log / personnel in the DOM.
+   */
+  async function executeGatherSupplies() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    if (!operatives || operatives.length !== 1) return;
+
+    const result = await Operations.resolveGatherSupplies(gameState, operatives);
+
+    const successes = result.rolls.filter(r => r.success).length;
+    const rollList = result.rolls.map(r => r.roll).join(', ');
+    addLogEntry(
+      `Gather Supplies: ${successes}/3 rolls succeeded (${rollList}). +${result.gained} Supplies.`
+    );
 
     GameState.save(gameState, 'current');
     renderGameState();
@@ -493,6 +526,7 @@ const App = (() => {
     renderGameState,
     renderOperations,
     executeMinorVandalism,
+    executeGatherSupplies,
     renderResources,
     getInfluenceDie,
     attemptRecruit,
