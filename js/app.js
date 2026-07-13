@@ -141,6 +141,10 @@ const App = (() => {
     const state = GameState.load('current');
     if (!state) return;
     gameState = state;
+    // Back-compat: a mid-game save may carry a nonzero leaderSkillLevel while
+    // leader.value predates the sync (#48). Reconcile so the Leader contributes
+    // its skill to operation math immediately. Guards saves with no leader.
+    GameState.updateLeaderSkill(gameState);
     syncInputProviders();
     showScreen('game');
     renderGameState();
@@ -801,12 +805,14 @@ const App = (() => {
   }
 
   /**
-   * Update leader skill level to match the highest operative value.
+   * Update leader skill level to match the highest operative value. Thin
+   * wrapper delegating to the single engine implementation
+   * (GameState.updateLeaderSkill), which owns the monotonic high-water-mark
+   * logic and the leader.value sync — no competing copy lives here (#48).
    */
   function updateLeaderSkill() {
     if (!gameState) return;
-    const operativeValues = gameState.operatives.map(op => op.value);
-    gameState.leaderSkillLevel = Math.max(gameState.leaderSkillLevel, ...operativeValues);
+    GameState.updateLeaderSkill(gameState);
   }
 
   /**

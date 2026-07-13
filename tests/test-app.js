@@ -251,6 +251,72 @@ TestRunner.describe('app.js — End Turn wiring (#20)', function () {
 
 });
 
+TestRunner.describe('app.js — Leader Skill high-water mark (#48)', function () {
+
+  function setupGameTopBar() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+        <span id="val-heat"></span>
+        <span id="val-supplies"></span>
+        <span id="val-turn"></span>
+        <span id="val-leader"></span>
+        <div id="operations-list"></div>
+        <div id="section-recruit-pool"><div class="card-list"></div></div>
+        <div id="section-initiates"><div class="card-list"></div></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen"><div id="victory-stats"></div></div>
+    `;
+  }
+
+  TestRunner.test('top-bar #val-leader displays the high-water mark after an end-of-turn promotion', async function () {
+    setupGameTopBar();
+    App.beginGame();
+    App.showScreen('game');
+    const s = App.getState();
+    // An Initiate about to finish training this turn.
+    s.initiates = [{ card: { suit: 'spades', rank: 'K', value: 13 }, turnsRemaining: 1 }];
+
+    try {
+      await App.endTurn();
+      TestRunner.assertEqual(s.leaderSkillLevel, 13, 'promotion raised the skill level');
+      TestRunner.assertEqual(document.getElementById('val-leader').textContent, '13',
+        'top bar shows the live high-water mark');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('App.updateLeaderSkill delegates to the engine (no competing implementation)', function () {
+    setupGameTopBar();
+    App.beginGame();
+    const s = App.getState();
+    s.operatives = [{ suit: 'clubs', rank: 'J', value: 11 }];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(s.leaderSkillLevel, 11);
+    TestRunner.assertEqual(s.leader.value, 11, 'engine also synced leader.value');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('continueGame syncs leader.value to a saved leaderSkillLevel (mid-game load)', function () {
+    setupGameTopBar();
+    const saved = GameState.createInitial();
+    saved.leaderSkillLevel = 7;   // a mid-game high-water mark
+    saved.leader.value = 0;       // an older save left this unsynced
+    GameState.save(saved, 'current');
+
+    App.continueGame();
+    const s = App.getState();
+    TestRunner.assertEqual(s.leader.value, 7, 'leader.value reflects the loaded skill level');
+    GameState.deleteSave('current');
+  });
+
+});
+
 TestRunner.describe('app.js — Victory screen (#22)', function () {
 
   TestRunner.test('End Turn that completes a 3rd Late-Game Op (real engine) routes to the Victory screen with stats', async function () {

@@ -83,6 +83,29 @@ const GameState = (() => {
     return state.leader ? [state.leader, ...state.operatives] : [...state.operatives];
   }
 
+  /**
+   * Update the Leader's skill level — a monotonic high-water mark equal to the
+   * highest value among current Operatives (per the rulebook: "counting
+   * yourself as an Operative with skill level matching your highest Operative
+   * ... your skill doesn't go down if an Operative is lost"). The mark only
+   * ever rises, so losing/detaining an Operative never lowers it.
+   *
+   * Also syncs state.leader.value to the skill level so the Leader contributes
+   * its skill to operation success math (checkWithOperatives sums operative
+   * values). Lives in the engine so headless simulations get correct Leader
+   * skill without any App/DOM layer.
+   *
+   * Guards the empty-operatives case (mark holds) and saves that predate
+   * state.leader (skill still ratchets; no leader to sync).
+   * @param {object} state
+   */
+  function updateLeaderSkill(state) {
+    const values = state.operatives.map((op) => op.value);
+    const prior = state.leaderSkillLevel || 0;
+    state.leaderSkillLevel = values.length ? Math.max(prior, ...values) : prior;
+    if (state.leader) state.leader.value = state.leaderSkillLevel;
+  }
+
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
   }
@@ -143,6 +166,7 @@ const GameState = (() => {
   return {
     createInitial,
     assignablePool,
+    updateLeaderSkill,
     setInfluence,
     setHeat,
     setSupplies,
