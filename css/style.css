@@ -399,6 +399,23 @@ legend {
   justify-content: center;
 }
 
+.modal .operative-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.modal .operative-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
 .modal button {
   padding: 10px 24px;
   font-size: 1rem;
