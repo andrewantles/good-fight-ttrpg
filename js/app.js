@@ -305,9 +305,12 @@ const App = (() => {
    * pool, failure detains 1 Operative for 2 turns plus a Compound-Failure
    * second penalty), then reflect resources / log / personnel in the DOM.
    *
-   * The Compound-Failure second penalty currently ships with the engine's
-   * default `secondPenaltyChoice` ('detain') — no options are passed here. The
-   * real player-choice modal is #37 and will replace this default once landed.
+   * The Compound-Failure second penalty is a pre-committed player choice
+   * (detain 1 more Operative vs. lose 2 Supplies) supplied via the #37 modal.
+   * The engine (resolveSignificantVandalism) rolls internally and only exercises
+   * the choice on failure, so — matching the simulation contract where a
+   * strategy pre-commits this choice before the roll (#19) — we gather it up
+   * front and pass it in as `secondPenaltyChoice`.
    */
   async function executeSignificantVandalism() {
     if (!gameState) return;
@@ -315,15 +318,22 @@ const App = (() => {
     const operatives = await UI.assignOperatives(4, gameState.operatives);
     if (!operatives || operatives.length !== 4) return;
 
-    const result = await Operations.resolveSignificantVandalism(gameState, operatives);
+    const secondPenaltyChoice = await UI.compoundFailureChoice();
+
+    const result = await Operations.resolveSignificantVandalism(gameState, operatives, {
+      secondPenaltyChoice,
+    });
 
     if (result.success) {
       addLogEntry(
         `Significant Vandalism succeeded (rolled ${result.roll}). +10 Influence, +10 Heat, +2 Recruit Pool.`
       );
     } else {
+      const secondPenalty = secondPenaltyChoice === 'supplies'
+        ? '−2 Supplies'
+        : '1 more Operative detained 2 turns';
       addLogEntry(
-        `Significant Vandalism failed (rolled ${result.roll}). Compound Failure: 1 Operative detained 2 turns, plus 1 more detained (default).`
+        `Significant Vandalism failed (rolled ${result.roll}). Compound Failure: 1 Operative detained 2 turns, plus ${secondPenalty}.`
       );
     }
 

@@ -373,6 +373,65 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
 
 });
 
+TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function () {
+
+  TestRunner.test('Significant Vandalism passes the compoundFailureChoice modal result as secondPenaltyChoice', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    GameState.addSupplies(App.getState(), 5);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
+    const originalResolve = Operations.resolveSignificantVandalism;
+    let choiceModalShown = false;
+    let receivedOptions = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      choiceModalShown = true;
+      return 'supplies';
+    };
+    Operations.resolveSignificantVandalism = async function (state, operatives, options) {
+      receivedOptions = options;
+      return { roll: 99, success: false };
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(choiceModalShown, 'compoundFailureChoice modal was shown');
+      TestRunner.assert(receivedOptions !== null, 'options object was passed to resolveSignificantVandalism');
+      TestRunner.assertEqual(receivedOptions.secondPenaltyChoice, 'supplies',
+        'the modal choice was passed through as secondPenaltyChoice');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
+      Operations.resolveSignificantVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function () {
 
   TestRunner.test('renders a Significant Vandalism button when executable and clicking it reaches resolveSignificantVandalism', async function () {
@@ -409,10 +468,14 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
 
     // Stub the picker to auto-return operatives and the engine call to record it.
     const originalAssign = UI.assignOperatives;
+    const originalChoice = UI.compoundFailureChoice;
     const originalResolve = Operations.resolveSignificantVandalism;
     let received = null;
     UI.assignOperatives = async function (count, available) {
       return available.slice(0, count);
+    };
+    UI.compoundFailureChoice = async function () {
+      return 'detain';
     };
     Operations.resolveSignificantVandalism = async function (state, operatives, options) {
       received = operatives;
@@ -434,6 +497,7 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
       TestRunner.assert(/Significant Vandalism/.test(log), 'log mentions Significant Vandalism');
     } finally {
       UI.assignOperatives = originalAssign;
+      UI.compoundFailureChoice = originalChoice;
       Operations.resolveSignificantVandalism = originalResolve;
       GameState.deleteSave('current');
     }
