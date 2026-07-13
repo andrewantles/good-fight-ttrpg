@@ -193,3 +193,75 @@ TestRunner.describe('crackdown.js — Cascade substitution', function () {
   });
 
 });
+
+TestRunner.describe('crackdown.js — Leader is permanent and un-losable (#47)', function () {
+
+  // The Leader is held OUTSIDE state.operatives, so operative-loss tiers should
+  // never touch it — even when it is the only "operative-like" unit and the
+  // penalty cascades down to initiates/supplies. These lock that in.
+
+  TestRunner.test('Safehouse raid with only the Leader: Leader untouched, loss cascades to supplies', async function () {
+    const state = GameState.createInitial();
+    state.heat = 100;
+    state.operatives = [];   // no real operatives — only the Leader exists
+    state.initiates = [];
+    state.supplies = 10;
+    state.recruitDeck = [];
+
+    crackdownDice(45); // Safehouse: base -1 operative
+    const result = await Crackdown.resolveCrackdown(state);
+    Dice.setProvider(null);
+
+    // 0 operatives -> 1 missing op -> 2 initiates owed; 0 initiates -> 4 supplies.
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader still present');
+    TestRunner.assertEqual(state.supplies, 6, '-4 supplies via full cascade');
+    TestRunner.assertEqual(result.penalties.operatives, 0, 'no operative removed (Leader is not one)');
+    TestRunner.assertEqual(state.operativesLost, 0, 'Leader never counts as an operative loss');
+    TestRunner.assertEqual(state.detainedOperatives.length, 0, 'Leader never detained by a Crackdown');
+    TestRunner.assertEqual(state.recruitDeck.length, 0, 'Leader card never recycled to the deck');
+  });
+
+  TestRunner.test('Warehouse raid with only the Leader: Leader untouched, -20 influence + supplies cascade', async function () {
+    const state = GameState.createInitial();
+    state.heat = 100;
+    state.influence = 100;
+    state.operatives = [];
+    state.initiates = [];
+    state.supplies = 10;
+    state.recruitDeck = [];
+
+    crackdownDice(75); // Warehouse: base -2 operatives, -20 influence
+    const result = await Crackdown.resolveCrackdown(state);
+    Dice.setProvider(null);
+
+    // 0 operatives -> 2 missing -> 4 initiates owed; 0 initiates -> 8 supplies.
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader still present');
+    TestRunner.assertEqual(state.supplies, 2, '-8 supplies via cascade (10 - 8)');
+    TestRunner.assertEqual(state.influence, 80, '-20 influence still applied');
+    TestRunner.assertEqual(result.penalties.operatives, 0, 'Leader is not removed as an operative');
+    TestRunner.assertEqual(state.operativesLost, 0, 'Leader never counted in operativesLost');
+  });
+
+  TestRunner.test('Headquarters raid with only the Leader: Leader untouched, -50 influence + full cascade', async function () {
+    const state = GameState.createInitial();
+    state.heat = 100;
+    state.influence = 100;
+    state.operatives = [];
+    state.initiates = [];
+    state.supplies = 100;
+    state.recruitDeck = [];
+
+    crackdownDice(90); // Headquarters: base -4 operatives, -50 influence
+    const result = await Crackdown.resolveCrackdown(state);
+    Dice.setProvider(null);
+
+    // 0 operatives -> 4 missing -> 8 initiates owed; 0 initiates -> 16 supplies.
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader still present');
+    TestRunner.assertEqual(state.supplies, 84, '-16 supplies via cascade (100 - 16)');
+    TestRunner.assertEqual(state.influence, 50, '-50 influence still applied');
+    TestRunner.assertEqual(result.penalties.operatives, 0, 'Leader is not an operative removal');
+    TestRunner.assertEqual(state.operativesLost, 0, 'Leader never counted in operativesLost');
+    TestRunner.assertEqual(state.detainedOperatives.length, 0, 'Leader never detained');
+  });
+
+});

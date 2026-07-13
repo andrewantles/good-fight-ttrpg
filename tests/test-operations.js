@@ -1312,3 +1312,83 @@ TestRunner.describe('operations.js — Late-Game Operation execution', function 
   });
 
 });
+
+// ─── Suite: Operations — Leader is permanent and un-losable (#47) ──────────────
+
+TestRunner.describe('operations.js — Leader never detained (#47)', function () {
+
+  // The assignable pool puts the Leader FIRST, so an assigned set that includes
+  // the Leader has it at index 0 — exactly where the old shift()-based detain
+  // would have grabbed it. These tests lock in that the Leader is skipped and a
+  // real (non-Leader) operative absorbs the detainment while the count holds.
+
+  TestRunner.test('Average Vandalism failure with Leader in the set detains a NON-Leader; Leader stays available', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 5 });
+    const realOp = { suit: 'clubs', rank: '6', value: 6 };
+    state.operatives = [realOp];
+    // assignablePool → [leader, realOp]; Leader is index 0.
+    const assigned = GameState.assignablePool(state);
+    TestRunner.assert(assigned[0].isLeader, 'Leader is first in the assigned set');
+
+    // d100=99 (failure: 99 > 10)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveAverageVandalism(state, assigned);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
+    TestRunner.assert(!state.detainedOperatives[0].card.isLeader, 'the Leader was NOT the detained unit');
+    TestRunner.assertEqual(state.detainedOperatives[0].card, realOp, 'the real operative absorbed the detain');
+    TestRunner.assertEqual(state.operatives.length, 0, 'real operative removed from operatives');
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader still held outside operatives');
+    TestRunner.assertEqual(state.operativesLost, 0, 'detainment is not an operative loss');
+  });
+
+  TestRunner.test('Significant Vandalism compound failure never detains the Leader; real operatives absorb both bullets', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 10 });
+    // 3 real operatives; assignablePool → [leader, op1, op2, op3] (K=4 set).
+    const realOps = [
+      { suit: 'hearts', rank: '5',  value: 5  },
+      { suit: 'clubs',  rank: '6',  value: 6  },
+      { suit: 'spades', rank: '7',  value: 7  },
+    ];
+    state.operatives = [...realOps];
+    const assigned = GameState.assignablePool(state);
+    TestRunner.assert(assigned[0].isLeader, 'Leader is first in the assigned set');
+
+    // d100=99 (failure). Player picks detain for the second bullet too.
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveSignificantVandalism(state, assigned, { secondPenaltyChoice: 'detain' });
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 2, 'both bullets detained a unit');
+    TestRunner.assert(
+      state.detainedOperatives.every(d => !d.card.isLeader),
+      'neither detained unit is the Leader'
+    );
+    TestRunner.assert(
+      state.detainedOperatives.every(d => d.turnsRemaining === 2),
+      'both detained for 2 turns'
+    );
+    TestRunner.assertEqual(state.operatives.length, 1, '2 real operatives removed, 1 remains');
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader untouched');
+    TestRunner.assertEqual(state.operativesLost, 0, 'detainment does not count as operativesLost');
+  });
+
+  TestRunner.test('detain skips the Leader wherever it sits in the assigned set', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 5 });
+    const op1 = { suit: 'hearts', rank: '5', value: 5 };
+    const op2 = { suit: 'clubs',  rank: '6', value: 6 };
+    state.operatives = [op1, op2];
+    // Leader deliberately placed in the MIDDLE of the assigned set.
+    const assigned = [op1, state.leader, op2];
+
+    Dice.setProvider(() => Promise.resolve(99)); // failure
+    await Operations.resolveAverageVandalism(state, assigned);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
+    TestRunner.assert(!state.detainedOperatives[0].card.isLeader, 'Leader not detained despite mid-set position');
+    TestRunner.assertEqual(state.detainedOperatives[0].card, op1, 'first real operative detained');
+  });
+
+});
