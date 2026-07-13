@@ -739,4 +739,37 @@ TestRunner.describe('operations.js — Scout', function () {
     TestRunner.assertEqual(state.supplies, 8, '-2 supplies as 2nd penalty');
   });
 
+  TestRunner.test('resolveScout success after startScout: assigned operatives return to state.operatives', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    Operations.startScout(state, ops);
+    TestRunner.assertEqual(state.operatives.length, 0, 'operatives tapped for the op');
+
+    const assigned = state.multiTurnOps[0].assignedOperatives;
+    // opSum = 2+3+4+5=14, target = 100-10+14 = 104 (always succeeds)
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 3][i++]));
+    await Operations.resolveScout(state, assigned);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.operatives.length, 4, 'all 4 assigned operatives return on success');
+  });
+
+  TestRunner.test('resolveScout failure after startScout: non-detained assigned operatives return to state.operatives', async function () {
+    const state = bootTestGame({ heat: 99, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    Operations.startScout(state, ops);
+
+    const assigned = state.multiTurnOps[0].assignedOperatives;
+    // opSum=14, target = 100-99+14 = 15. Roll 90 fails.
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveScout(state, assigned, { secondPenaltyChoice: 'supplies' });
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, 'only 1 operative detained');
+    TestRunner.assertEqual(state.operatives.length, 3, '3 non-detained assigned operatives return to the pool');
+  });
+
 });

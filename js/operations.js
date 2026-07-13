@@ -253,6 +253,14 @@ const Operations = (() => {
       resolveCompoundChoice(state, operatives, options, 1);
     }
 
+    // Any assigned operative not detained (all of them on success, survivors
+    // on failure) is done being tapped for this op and returns to the pool.
+    for (const op of operatives) {
+      if (!state.operatives.includes(op)) {
+        state.operatives.push(op);
+      }
+    }
+
     return { roll, success };
   }
 
