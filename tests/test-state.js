@@ -104,6 +104,27 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assertEqual(result, null);
   });
 
+  TestRunner.test('listSaves() reports every saved slot by name and drops deleted ones', () => {
+    const a = GameState.createInitial();
+    const b = GameState.createInitial();
+    GameState.save(a, 'ls-slot-a');
+    GameState.save(b, 'ls-slot-b');
+
+    let names = GameState.listSaves();
+    TestRunner.assert(names.includes('ls-slot-a'), 'listSaves includes first saved slot');
+    TestRunner.assert(names.includes('ls-slot-b'), 'listSaves includes second saved slot');
+    // Names are the bare slot name, without the storage prefix.
+    TestRunner.assert(!names.some((n) => n.startsWith('good-fight-save-')),
+      'listSaves strips the storage prefix');
+
+    GameState.deleteSave('ls-slot-a');
+    names = GameState.listSaves();
+    TestRunner.assert(!names.includes('ls-slot-a'), 'deleted slot no longer listed');
+    TestRunner.assert(names.includes('ls-slot-b'), 'surviving slot still listed');
+
+    GameState.deleteSave('ls-slot-b');
+  });
+
   TestRunner.test('input mode persists across save/load', () => {
     const state = GameState.createInitial();
     state.inputMode.dice = 'physical';

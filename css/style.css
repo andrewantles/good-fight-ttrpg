@@ -508,6 +508,20 @@ legend {
 
 /* --- Turn Log --- */
 
+/* Scoped to the log panel only (not the shared .panel) so the "Turn Log"
+   heading stays fixed while the growing turn history scrolls on its own —
+   which also makes renderLog()'s auto-scroll-to-latest meaningful (#15). */
+.panel-log {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-log #turn-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .log-entry {
   font-size: 0.8rem;
   padding: 3px 0;

@@ -1179,3 +1179,58 @@ TestRunner.describe('app.js — Settings gear: save-slot save/load/delete (#41 r
   });
 
 });
+
+TestRunner.describe('app.js — Turn history log panel (#15)', function () {
+
+  function setupGameDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen"></div>
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+        <span id="val-heat"></span>
+        <span id="val-supplies"></span>
+        <span id="val-turn"></span>
+        <span id="val-leader"></span>
+        <div id="operations-list"></div>
+        <div id="turn-log">
+          <p class="placeholder">Events will appear here as you play.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  TestRunner.test('continuing a saved game renders its stored turn history (past turns’ events)', function () {
+    setupGameDOM();
+
+    // A saved game that already has a multi-turn history.
+    const state = GameState.createInitial();
+    state.currentTurn = 3;
+    state.turnLog = [
+      { turn: 1, text: 'Minor Vandalism succeeded: +10 Influence.' },
+      { turn: 2, text: 'Gather Supplies succeeded: +2 Supplies.' },
+      { turn: 2, text: 'Crackdown! Safehouse raid (rolled 40 vs Heat).' },
+    ];
+    GameState.save(state, 'current');
+
+    App.continueGame();
+
+    const logEl = document.getElementById('turn-log');
+    const text = logEl.textContent;
+    // The panel must show every stored event, not the empty placeholder.
+    TestRunner.assert(!/Events will appear here/.test(text),
+      'placeholder is replaced once a loaded game has history');
+    TestRunner.assert(/Minor Vandalism succeeded/.test(text), 'turn 1 event rendered');
+    TestRunner.assert(/Gather Supplies succeeded/.test(text), 'turn 2 event rendered');
+    TestRunner.assert(/Crackdown! Safehouse raid/.test(text), 'second turn-2 event rendered');
+    // Per-turn breakdown: each entry is tagged with its turn number.
+    const entries = logEl.querySelectorAll('.log-entry');
+    TestRunner.assertEqual(entries.length, 3, 'one rendered entry per stored event');
+    TestRunner.assert(/T1/.test(entries[0].textContent), 'first entry tagged with its turn (T1)');
+    TestRunner.assert(/T2/.test(entries[2].textContent), 'later entry tagged with its turn (T2)');
+
+    GameState.deleteSave('current');
+  });
+
+});

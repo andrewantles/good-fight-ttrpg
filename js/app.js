@@ -321,6 +321,7 @@ const App = (() => {
     renderPersonnel();
     renderOperations();
     renderUnwinnableAdvisory();
+    renderLog();
   }
 
   /**
