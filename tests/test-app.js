@@ -808,3 +808,123 @@ TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Unwinnable Advisory (#14)', function () {
+
+  // Builds a game screen containing the advisory banner + a live game state.
+  function setupGameWithAdvisory() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <div id="unwinnable-advisory" class="advisory" hidden>
+          <span class="advisory-text"></span>
+          <button id="btn-dismiss-advisory">&times;</button>
+        </div>
+        <div id="operations-list"></div>
+        <div id="section-recruit-pool"><div class="card-list"></div></div>
+        <div id="section-initiates"><div class="card-list"></div></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame(); // fresh state; overwrite deck/pool below per-test
+  }
+
+  TestRunner.test('advisory appears when no operatives, no recruit pool, empty deck', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(!advisory.hidden, 'advisory should be visible when all three conditions hold');
+  });
+
+  TestRunner.test('advisory stays hidden when an operative remains', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [{ suit: 'spades', rank: 'A', value: 14 }];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while an operative remains');
+  });
+
+  TestRunner.test('advisory stays hidden when recruit pool is non-empty', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [{ suit: 'hearts', rank: '2', value: 2 }];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while the recruit pool has cards');
+  });
+
+  TestRunner.test('advisory stays hidden when the recruitment deck is non-empty', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [{ suit: 'clubs', rank: '3', value: 3 }];
+
+    App.renderGameState();
+
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'advisory should be hidden while the recruitment deck has cards');
+  });
+
+  TestRunner.test('dismissing hides the advisory without changing screen or state', function () {
+    setupGameWithAdvisory();
+    App.showScreen('game');
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+
+    App.renderGameState();
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(!advisory.hidden, 'advisory visible before dismiss');
+
+    document.getElementById('btn-dismiss-advisory').click();
+
+    TestRunner.assert(advisory.hidden, 'advisory hidden after dismiss');
+    TestRunner.assertEqual(App.currentScreen(), 'game', 'play continues on the game screen (non-blocking)');
+
+    // Dismissal survives a re-render while the conditions still hold.
+    App.renderGameState();
+    TestRunner.assert(advisory.hidden, 'advisory stays dismissed on re-render while conditions persist');
+  });
+
+  TestRunner.test('advisory can reappear after conditions clear and recur', function () {
+    setupGameWithAdvisory();
+    const state = App.getState();
+    state.operatives = [];
+    state.recruitPool = [];
+    state.recruitDeck = [];
+    App.renderGameState();
+
+    document.getElementById('btn-dismiss-advisory').click();
+    const advisory = document.getElementById('unwinnable-advisory');
+    TestRunner.assert(advisory.hidden, 'dismissed');
+
+    // Conditions clear (player gains an operative), then recur.
+    state.operatives = [{ suit: 'spades', rank: 'A', value: 14 }];
+    App.renderGameState();
+    TestRunner.assert(advisory.hidden, 'still hidden while conditions do not hold');
+
+    state.operatives = [];
+    App.renderGameState();
+    TestRunner.assert(!advisory.hidden, 'advisory reappears once the position is stuck again');
+  });
+
+});

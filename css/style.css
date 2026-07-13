@@ -492,3 +492,38 @@ legend {
   font-weight: bold;
   margin-right: 6px;
 }
+
+/* Unwinnable Advisory — non-blocking hint banner (#14) */
+.advisory {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--orange);
+  border-left: 4px solid var(--orange);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.advisory[hidden] { display: none; }
+
+.advisory-text {
+  flex: 1;
+  color: var(--yellow);
+  font-size: 0.9rem;
+}
+
+.advisory-dismiss {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.advisory-dismiss:hover { color: var(--text); }

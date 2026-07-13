@@ -75,6 +75,11 @@ const App = (() => {
   // Active game state — the single source of truth while playing
   let gameState = null;
 
+  // Whether the player has dismissed the current showing of the Unwinnable
+  // Advisory. Reset whenever the stuck conditions no longer hold, so the
+  // advisory can reappear if the player lands back in the same position.
+  let advisoryDismissed = false;
+
   /**
    * Get the current game state.
    * @returns {object|null}
@@ -192,6 +197,44 @@ const App = (() => {
     renderResources();
     renderPersonnel();
     renderOperations();
+    renderUnwinnableAdvisory();
+  }
+
+  /**
+   * Show/hide the Unwinnable Advisory (#14) — a non-blocking hint shown when
+   * the player has no Operatives, no Recruit Pool, and an empty Recruitment
+   * Deck. Play is never stopped; the banner is dismissible via
+   * #btn-dismiss-advisory. Dismissal persists across re-renders while the
+   * conditions still hold, and resets once the position recovers so the hint
+   * can reappear if the player becomes stuck again.
+   */
+  function renderUnwinnableAdvisory() {
+    const advisory = document.getElementById('unwinnable-advisory');
+    if (!advisory || !gameState) return;
+
+    const stuck =
+      gameState.operatives.length === 0 &&
+      gameState.recruitPool.length === 0 &&
+      gameState.recruitDeck.length === 0;
+
+    if (!stuck) {
+      // Position recovered — hide and re-arm for a future recurrence.
+      advisoryDismissed = false;
+      advisory.hidden = true;
+      return;
+    }
+
+    advisory.hidden = advisoryDismissed;
+
+    const dismissBtn = document.getElementById('btn-dismiss-advisory');
+    if (dismissBtn) {
+      // Idempotent wiring — assigning onclick avoids stacking listeners
+      // across the many re-renders during a game.
+      dismissBtn.onclick = () => {
+        advisoryDismissed = true;
+        advisory.hidden = true;
+      };
+    }
   }
 
   /**
@@ -662,6 +705,7 @@ const App = (() => {
     renderPersonnel,
     renderGameState,
     renderOperations,
+    renderUnwinnableAdvisory,
     executeMinorVandalism,
     executeAverageVandalism,
     executeSignificantVandalism,
