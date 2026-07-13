@@ -156,3 +156,51 @@ TestRunner.describe('app.js — Setup Tables', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Setup Difficulty', function () {
+
+  // Set up the minimal DOM beginGame() touches: a difficulty select plus
+  // the data-screen containers showScreen() toggles.
+  function setupDifficultyScreen(difficulty) {
+    const container = document.getElementById('app');
+    if (!container) return;
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <select id="input-difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    document.getElementById('input-difficulty').value = difficulty;
+  }
+
+  TestRunner.test('beginGame captures the selected difficulty into state', function () {
+    setupDifficultyScreen('hard');
+    App.beginGame();
+    TestRunner.assertEqual(App.getState().difficulty, 'hard');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('beginGame defaults difficulty to medium when no select present', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    App.beginGame();
+    TestRunner.assertEqual(App.getState().difficulty, 'medium');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('chosen difficulty persists through save/load', function () {
+    setupDifficultyScreen('easy');
+    App.beginGame();
+    const loaded = GameState.load('current');
+    TestRunner.assertEqual(loaded.difficulty, 'easy');
+    GameState.deleteSave('current');
+  });
+
+});

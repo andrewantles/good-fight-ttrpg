@@ -25,6 +25,7 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assert(state.inputMode !== undefined);
     TestRunner.assertEqual(state.inputMode.dice, 'digital');
     TestRunner.assertEqual(state.inputMode.cards, 'digital');
+    TestRunner.assertEqual(state.difficulty, 'medium');
   });
 
   TestRunner.test('save() + load() round-trips state without data loss', () => {

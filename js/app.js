@@ -95,6 +95,10 @@ const App = (() => {
     if (diceSelect) state.inputMode.dice = diceSelect.value;
     if (cardsSelect) state.inputMode.cards = cardsSelect.value;
 
+    // Capture difficulty (easy/medium/hard) — defaults to createInitial's value
+    const difficultySelect = document.getElementById('input-difficulty');
+    if (difficultySelect) state.difficulty = difficultySelect.value;
+
     // Create and shuffle the recruitment deck
     state.recruitDeck = Deck.createDeck();
     Deck.shuffle(state.recruitDeck);

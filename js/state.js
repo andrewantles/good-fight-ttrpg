@@ -17,6 +17,10 @@ const GameState = (() => {
         cards: 'digital',
       },
 
+      // Difficulty (easy/medium/hard) — gates Mid/Late-Game Operation
+      // Influence thresholds. Chosen once at Setup; has real mechanical effect.
+      difficulty: 'medium',
+
       // Resources
       influence: 0,
       heat: 0,
