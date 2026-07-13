@@ -173,7 +173,17 @@ const App = (() => {
    * This also establishes the bare settings-modal container (matching the
    * js/ui.js .modal-overlay > .modal pattern) that later settings sections
    * (e.g. save-slot management, #41) can extend.
+   *
+   * The save-slot management section (#41) is the UI surface for the
+   * multi-slot engine functions in state.js. It lists named slots
+   * (GameState.listSaves), saves the current game to a named slot
+   * (GameState.save), loads a slot into the active game (GameState.load →
+   * set gameState → re-render), and deletes a slot (GameState.deleteSave).
+   * The internal 'current' autosave slot is hidden from the manager — it is
+   * the live game, not a user-managed save — and is reserved as a slot name.
    */
+  const CURRENT_SLOT = 'current';
+
   function openSettings() {
     if (!gameState) return;
 
@@ -195,6 +205,14 @@ const App = (() => {
             <select data-settings-cards>${modeOptions(gameState.inputMode.cards)}</select>
           </label>
         </fieldset>
+        <fieldset>
+          <legend>Save Slots</legend>
+          <div data-settings-slots></div>
+          <label>Slot name:
+            <input type="text" data-settings-slot-name placeholder="e.g. before-crackdown">
+          </label>
+          <button type="button" data-settings-save>Save current game to slot</button>
+        </fieldset>
         <div class="choice-buttons">
           <button type="button" data-settings-apply>Apply</button>
           <button type="button" data-settings-close>Close</button>
@@ -204,16 +222,67 @@ const App = (() => {
 
     const close = () => overlay.remove();
 
+    // Render the list of user-managed save slots (everything except the
+    // internal 'current' autosave), each with Load + Delete controls.
+    const renderSlots = () => {
+      const list = overlay.querySelector('[data-settings-slots]');
+      const names = GameState.listSaves()
+        .filter((name) => name !== CURRENT_SLOT)
+        .sort();
+      if (names.length === 0) {
+        list.innerHTML = '<p class="placeholder">No saved slots yet.</p>';
+        return;
+      }
+      list.innerHTML = names.map((name) =>
+        `<div class="slot-row" data-slot="${name}">` +
+          `<span class="slot-name">${name}</span>` +
+          `<button type="button" data-settings-load="${name}">Load</button>` +
+          `<button type="button" data-settings-delete="${name}">Delete</button>` +
+        '</div>'
+      ).join('');
+    };
+
     overlay.querySelector('[data-settings-apply]').addEventListener('click', () => {
       gameState.inputMode.dice = overlay.querySelector('[data-settings-dice]').value;
       gameState.inputMode.cards = overlay.querySelector('[data-settings-cards]').value;
       syncInputProviders();
-      GameState.save(gameState, 'current');
+      GameState.save(gameState, CURRENT_SLOT);
       close();
     });
 
     overlay.querySelector('[data-settings-close]').addEventListener('click', close);
 
+    // Save the current game to the named slot. Empty names and the reserved
+    // 'current' autosave name are rejected so the manager can't clobber the
+    // live game's autosave.
+    overlay.querySelector('[data-settings-save]').addEventListener('click', () => {
+      const input = overlay.querySelector('[data-settings-slot-name]');
+      const name = input.value.trim();
+      if (!name || name === CURRENT_SLOT) return;
+      GameState.save(gameState, name);
+      input.value = '';
+      renderSlots();
+    });
+
+    // Delegate Load / Delete clicks from the slot list.
+    overlay.querySelector('[data-settings-slots]').addEventListener('click', (e) => {
+      const loadName = e.target.getAttribute && e.target.getAttribute('data-settings-load');
+      const deleteName = e.target.getAttribute && e.target.getAttribute('data-settings-delete');
+      if (loadName) {
+        const loaded = GameState.load(loadName);
+        if (!loaded) return;
+        gameState = loaded;
+        GameState.save(gameState, CURRENT_SLOT); // adopt the loaded game as the live autosave
+        syncInputProviders();
+        renderGameState();
+        close();
+      } else if (deleteName) {
+        GameState.deleteSave(deleteName);
+        renderSlots();
+      }
+    });
+
+    renderSlots();
     document.body.appendChild(overlay);
   }
 

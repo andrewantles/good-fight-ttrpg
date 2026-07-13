@@ -421,6 +421,36 @@ legend {
   font-size: 1rem;
 }
 
+/* --- Settings: save-slot manager (#41) --- */
+
+.modal [data-settings-slots] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.modal .slot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal .slot-row .slot-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal .slot-row button {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+}
+
 /* --- Card Component --- */
 
 .card {

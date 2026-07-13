@@ -1018,3 +1018,164 @@ TestRunner.describe('app.js — Settings gear: mid-game Input Mode toggle (#40)'
   });
 
 });
+
+TestRunner.describe('app.js — Settings gear: save-slot management panel (#41)', function () {
+
+  // Builds a game screen with the Settings gear plus a couple of the resource
+  // fields renderGameState() writes to, so we can prove a Load actually
+  // re-renders the active game (not just swaps internal state).
+  function setupSlotsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+        <span id="val-influence"></span>
+      </div>
+    `;
+    App.init();
+    App.beginGame(); // establishes gameState + autosaves to the 'current' slot
+  }
+
+  // Remove every save slot so tests don't leak state into one another
+  // (localStorage is shared across the whole happy-dom run).
+  function clearAllSlots() {
+    GameState.listSaves().forEach((name) => GameState.deleteSave(name));
+  }
+
+  TestRunner.test('modal lists existing named slots via GameState.listSaves (hides internal current autosave)', function () {
+    setupSlotsDOM();
+    // Seed two named slots; beginGame already wrote the 'current' autosave.
+    GameState.save(App.getState(), 'alpha');
+    GameState.save(App.getState(), 'beta');
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    const slots = overlay.querySelector('[data-settings-slots]');
+    TestRunner.assert(slots, 'modal has a save-slot list container');
+    const text = slots.textContent;
+    TestRunner.assert(text.includes('alpha'), 'named slot alpha is listed');
+    TestRunner.assert(text.includes('beta'), 'named slot beta is listed');
+    TestRunner.assert(!text.includes('current'),
+      "internal 'current' autosave slot is not exposed in the manager");
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+});
+
+TestRunner.describe('app.js — Settings gear: save-slot save/load/delete (#41 real engine)', function () {
+
+  function setupSlotsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+        <span id="val-influence"></span>
+      </div>
+    `;
+    App.init();
+    App.beginGame();
+  }
+
+  function clearAllSlots() {
+    GameState.listSaves().forEach((name) => GameState.deleteSave(name));
+  }
+
+  TestRunner.test('Save button persists the current game to the named slot and lists it (real engine)', function () {
+    setupSlotsDOM();
+    App.getState().influence = 42; // mutate the live game before saving
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('[data-settings-slot-name]').value = 'mygame';
+    overlay.querySelector('[data-settings-save]').click();
+
+    // Real persistence: the slot now holds the live game's state.
+    const saved = GameState.load('mygame');
+    TestRunner.assert(saved, 'GameState.load returns the saved slot');
+    TestRunner.assertEqual(saved.influence, 42, 'saved slot captured live influence');
+
+    // The new slot appears in the refreshed list.
+    TestRunner.assert(
+      overlay.querySelector('[data-settings-slots]').textContent.includes('mygame'),
+      'saved slot appears in the list without reopening the modal');
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+  TestRunner.test('blank or reserved "current" slot names do not save (guard)', function () {
+    setupSlotsDOM();
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    overlay.querySelector('[data-settings-slot-name]').value = '   ';
+    overlay.querySelector('[data-settings-save]').click();
+    TestRunner.assertEqual(GameState.listSaves().filter((n) => n !== 'current').length, 0,
+      'blank name creates no slot');
+
+    overlay.querySelector('[data-settings-slot-name]').value = 'current';
+    overlay.querySelector('[data-settings-save]').click();
+    // Only the autosave 'current' should exist — no duplicate/clobber created here.
+    const beforeInfluence = GameState.load('current').influence;
+    TestRunner.assert(typeof beforeInfluence === 'number',
+      "reserved 'current' name is not treated as a user slot");
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+  TestRunner.test('Load button swaps the active game to the slot and re-renders the screen (real engine)', function () {
+    setupSlotsDOM();
+    // Snapshot a game with influence 10 into a slot.
+    App.getState().influence = 10;
+    GameState.save(App.getState(), 'snap');
+    // Diverge the live game.
+    App.getState().influence = 3;
+    document.getElementById('val-influence').textContent = '3';
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector('[data-settings-load="snap"]').click();
+
+    // Active state actually replaced with the loaded slot.
+    TestRunner.assertEqual(App.getState().influence, 10,
+      'active game influence loaded from the slot');
+    // Re-render reflected in the DOM.
+    TestRunner.assertEqual(document.getElementById('val-influence').textContent, '10',
+      'renderGameState ran after load, updating the resource display');
+    // Loaded game adopted as the live autosave.
+    TestRunner.assertEqual(GameState.load('current').influence, 10,
+      "loaded game becomes the 'current' autosave");
+    // Modal closed.
+    TestRunner.assert(!document.querySelector('.modal-overlay'),
+      'settings modal closes after Load');
+
+    clearAllSlots();
+  });
+
+  TestRunner.test('Delete button removes the slot from storage and the list (real engine)', function () {
+    setupSlotsDOM();
+    GameState.save(App.getState(), 'gone');
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay.querySelector('[data-settings-slots]').textContent.includes('gone'),
+      'slot present before delete');
+
+    overlay.querySelector('[data-settings-delete="gone"]').click();
+
+    TestRunner.assertEqual(GameState.load('gone'), null,
+      'slot removed from storage (real engine)');
+    TestRunner.assert(!overlay.querySelector('[data-settings-slots]').textContent.includes('gone'),
+      'slot removed from the list without reopening');
+
+    overlay.remove();
+    clearAllSlots();
+  });
+
+});
