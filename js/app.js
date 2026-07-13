@@ -682,9 +682,20 @@ const App = (() => {
     const card = gameState.recruitPool[poolIndex];
     if (!card) return;
 
+    // Attributer eligibility (#49): the Leader is always eligible to perform a
+    // Recruit Attempt (per the rules: "...or yourself"), regardless of the
+    // target's value. A non-Leader Operative qualifies only if its value is
+    // strictly greater than the target Recruit's value. The Leader guarantees
+    // ≥1 eligible unit, so we prompt only when more than one qualifies.
+    const eligible = (gameState.leader ? [gameState.leader] : [])
+      .concat(gameState.operatives.filter((op) => op.value > card.value));
+    let attributer = eligible[0];
+    if (eligible.length > 1) {
+      attributer = await UI.recruitAttributerChoice(eligible);
+      if (!attributer) return; // player dismissed the picker without choosing
+    }
+
     // Base die: d10, or d12 if the player spends 1 Supply.
-    // The Leader can always attempt Recruitment (per CONTEXT.md) — this
-    // flow has no per-Operative attempter selection, so no value gate applies.
     const canAffordSupply = gameState.supplies >= 1;
     const dieChoice = await UI.recruitDieChoice(canAffordSupply);
     let baseDie = 'd10';
@@ -712,9 +723,9 @@ const App = (() => {
       // Move from pool to initiates with 2-turn timer
       gameState.recruitPool.splice(poolIndex, 1);
       gameState.initiates.push({ card: card, turnsRemaining: 2 });
-      addLogEntry(`Recruit success! ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) → Initiate (2 turns)`);
+      addLogEntry(`Recruit success! ${attributerLabel(attributer)} recruited ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) → Initiate (2 turns)`);
     } else {
-      addLogEntry(`Recruit failed. ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) — stays in pool.`);
+      addLogEntry(`Recruit failed. ${attributerLabel(attributer)} attempted ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) — stays in pool.`);
     }
 
     GameState.save(gameState, 'current');
@@ -724,6 +735,15 @@ const App = (() => {
   function suitSymbol(suit) {
     const icons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' };
     return icons[suit] || '';
+  }
+
+  /**
+   * Human-readable label for a Recruit-Attempt attributer (#49), used in the
+   * turn log: "Leader" for the Leader, else the operative's rank + suit glyph.
+   */
+  function attributerLabel(unit) {
+    if (!unit) return 'Leader';
+    return unit.isLeader ? 'Leader' : `${unit.rank}${suitSymbol(unit.suit)}`;
   }
 
   /**

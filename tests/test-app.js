@@ -1415,6 +1415,96 @@ TestRunner.describe('app.js — Leader in the Operatives panel (#46)', function 
 
 });
 
+TestRunner.describe('app.js — Recruit-attempt attributer wiring (#49)', function () {
+
+  function setupRecruitDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('clicking a Recruit button reaches recruit resolution with the chosen attributer', async function () {
+    setupRecruitDOM();
+    const state = App.getState();
+    // Target value 9; the K operative (13 > 9) joins the Leader as eligible.
+    state.recruitPool = [{ suit: 'hearts', rank: '9', value: 9 }];
+    state.operatives  = [{ suit: 'spades', rank: 'K', value: 13 }];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled card');
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    let offered = null;
+    // Multiple eligible → the picker is invoked; the player picks the operative.
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible.find((u) => u.rank === 'K'); };
+    UI.recruitDieChoice = async () => 'd10';
+
+    try {
+      Dice.setProvider(() => Promise.resolve(10)); // 10 >= 9 → success
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(offered && offered.some((u) => u.isLeader) && offered.some((u) => u.rank === 'K'),
+        'the picker was offered the Leader plus the higher-value operative');
+      TestRunner.assertEqual(App.getState().initiates.length, 1, 'success promoted the card to an Initiate');
+      TestRunner.assertEqual(App.getState().recruitPool.length, 0, 'the card left the recruit pool');
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/K♠ recruited/.test(log), 'the chosen operative (K♠) is recorded in the log');
+    } finally {
+      Dice.setProvider(null);
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('when only the Leader is eligible, clicking Recruit proceeds with no picker', async function () {
+    setupRecruitDOM();
+    const state = App.getState();
+    // Ace target (15); no operative outranks it, so only the Leader qualifies.
+    state.recruitPool = [{ suit: 'diamonds', rank: 'A', value: 15 }];
+    state.operatives  = [{ suit: 'clubs', rank: 'K', value: 13 }];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled Ace');
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    let pickerCalls = 0;
+    UI.recruitAttributerChoice = async (eligible) => { pickerCalls++; return eligible[0]; };
+    UI.recruitDieChoice = async () => 'd10';
+
+    try {
+      Dice.setProvider(() => Promise.resolve(3)); // outcome irrelevant; roll math unchanged
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(pickerCalls, 0, 'no picker shown when only the Leader qualifies');
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Leader/.test(log), 'the Leader is recorded as the attributer');
+    } finally {
+      Dice.setProvider(null);
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Turn history log panel (#15)', function () {
 
   function setupGameDOM() {

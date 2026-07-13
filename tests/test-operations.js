@@ -194,9 +194,17 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     // d10 rolls 7 (>= card value 3 → success under either the correct or
     // current buggy formula when leaderSkillLevel = 5)
     Dice.setProvider(() => Promise.resolve(7));
+    // The value-5 operative outranks the value-3 target, so the Leader and it
+    // are both eligible (#49) — auto-pick the Leader so the die-choice modal
+    // is the one on screen for chooseBaseDie.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
     const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     chooseBaseDie('d10');
     await promise;
+    UI.recruitAttributerChoice = originalAttributer;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -267,9 +275,16 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
 
     // Roll 5 on d10 — correct: 5 < 8 → FAIL; buggy: 5+10=15 >= 8 → SUCCESS
     Dice.setProvider(() => Promise.resolve(5));
+    // The value-10 operative outranks the value-8 target, so both it and the
+    // Leader are eligible (#49) — auto-pick so the die-choice modal shows.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
     const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     chooseBaseDie('d10');
     await promise;
+    UI.recruitAttributerChoice = originalAttributer;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -350,6 +365,89 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     TestRunner.assertEqual(appState.recruitPool.length, 0,
       'attempt should proceed and succeed despite leaderSkillLevel=0 and a low-value Operative');
     TestRunner.assertEqual(appState.initiates.length, 1);
+  });
+
+  // ── Attributer eligibility + selection (#49) ────────────────────────────────
+  // SPEC: The set of units that may perform a Recruit Attempt is the Leader
+  // (always) plus every non-Leader Operative whose value strictly exceeds the
+  // target Recruit's value. When only one qualifies (the Leader alone) no
+  // picker is shown; when more than one qualifies the player chooses.
+
+  TestRunner.test('[spec #49] Leader is always eligible — a high-value Ace with no qualifying operatives shows no picker and records the Leader', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    // Ace (value 15). The K operative (13) does NOT outrank it, so only the
+    // Leader is eligible.
+    state.recruitPool = [{ suit: 'diamonds', rank: 'A', value: 15 }];
+    state.operatives  = [{ suit: 'clubs', rank: 'K', value: 13 }];
+
+    let pickerCalls = 0;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { pickerCalls++; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(3)); // roll math unchanged; outcome irrelevant here
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10'); // single eligible → die modal is on screen synchronously
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(pickerCalls, 0,
+      'no attributer picker is shown when only the Leader qualifies (even vs an Ace)');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/Leader/.test(log), 'the log records the Leader as the attributer');
+  });
+
+  TestRunner.test('[spec #49] only Operatives with value > target join the Leader as eligible attributers', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '9', value: 9 }];
+    state.operatives  = [
+      { suit: 'clubs',  rank: '8', value: 8  }, // 8 <= 9 → NOT eligible
+      { suit: 'spades', rank: 'K', value: 13 }, // 13 > 9 → eligible
+    ];
+
+    let offered = null;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(2));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the picker stub resolve
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assert(offered, 'a picker is offered when more than one unit qualifies');
+    TestRunner.assertEqual(offered.length, 2, 'exactly the Leader plus the one higher-value operative');
+    TestRunner.assert(offered.some((u) => u.isLeader), 'the Leader is always among the eligible');
+    TestRunner.assert(offered.some((u) => u.rank === 'K'), 'the value-13 operative is eligible (> 9)');
+    TestRunner.assert(!offered.some((u) => u.rank === '8'), 'the value-8 operative is NOT eligible (<= 9)');
+  });
+
+  TestRunner.test('[spec #49] the chosen attributer is recorded in the turn log; roll math unchanged', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '5', value: 5 }];
+    state.operatives  = [{ suit: 'spades', rank: 'K', value: 13 }]; // eligible (13 > 5)
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    // Player picks the operative, not the Leader.
+    UI.recruitAttributerChoice = async (eligible) => eligible.find((u) => !u.isLeader);
+
+    // Roll 9 on d10 → 9 >= 5 → success (skill is NOT added to the roll).
+    Dice.setProvider(() => Promise.resolve(9));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.initiates.length, 1, 'success promotes the card pool → Initiate');
+    TestRunner.assertEqual(appState.recruitPool.length, 0, 'the card leaves the pool on success');
+    TestRunner.assertEqual(appState.initiates[0].turnsRemaining, 2, 'Initiate carries the 2-turn timer');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/K♠/.test(log), 'the chosen operative (K♠) is recorded as the attributer');
   });
 
 });
