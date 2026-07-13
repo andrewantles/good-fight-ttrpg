@@ -369,6 +369,18 @@ TestRunner.describe('operations.js — canExecute Requirements', function () {
     TestRunner.assert(!Operations.canExecute('minor_vandalism', state, []));
   });
 
+  TestRunner.test('fresh game: the Leader alone makes Minor Vandalism / Gather Supplies executable (#46)', function () {
+    // A brand-new game has 0 recruited Operatives — the Leader in the
+    // assignable pool must be enough to bootstrap the K=1 Operations.
+    const state = GameState.createInitial();
+    const pool = GameState.assignablePool(state);
+    TestRunner.assertArrayLength(pool, 1, 'pool is just the Leader on a fresh game');
+    TestRunner.assert(Operations.canExecute('minor_vandalism', state, pool),
+      'Minor Vandalism executable with only the Leader');
+    TestRunner.assert(Operations.canExecute('gather_supplies', state, pool),
+      'Gather Supplies executable with only the Leader');
+  });
+
   TestRunner.test('Average Vandalism: true with 2 operatives + 3 supplies', function () {
     const state = bootTestGame({ supplies: 3 });
     const ops = [

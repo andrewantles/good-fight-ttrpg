@@ -371,28 +371,32 @@ const App = (() => {
     const container = document.getElementById('operations-list');
     if (!container || !gameState) return;
 
+    // Availability is checked against the assignable pool (Leader + Operatives)
+    // so the Leader can bootstrap K=1 Operations on a fresh game.
+    const pool = GameState.assignablePool(gameState);
+
     const buttons = [];
-    if (Operations.canExecute('minor_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('minor_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
       );
     }
-    if (Operations.canExecute('average_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('average_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="average_vandalism">Average Vandalism</button>'
       );
     }
-    if (Operations.canExecute('significant_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('significant_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="significant_vandalism">Significant Vandalism</button>'
       );
     }
-    if (Operations.canExecute('gather_supplies', gameState, gameState.operatives)) {
+    if (Operations.canExecute('gather_supplies', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
       );
     }
-    if (Operations.canExecute('scout', gameState, gameState.operatives)) {
+    if (Operations.canExecute('scout', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="scout">Scout</button>'
       );
@@ -447,7 +451,7 @@ const App = (() => {
   async function executeMinorVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 1) return;
 
     const result = await Operations.resolveMinorVandalism(gameState, operatives);
@@ -471,7 +475,7 @@ const App = (() => {
   async function executeAverageVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(2, gameState.operatives);
+    const operatives = await UI.assignOperatives(2, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 2) return;
 
     const result = await Operations.resolveAverageVandalism(gameState, operatives);
@@ -505,7 +509,7 @@ const App = (() => {
   async function executeSignificantVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 4) return;
 
     let secondPenaltyChoice = null;
@@ -541,7 +545,7 @@ const App = (() => {
   async function executeGatherSupplies() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 1) return;
 
     const result = await Operations.resolveGatherSupplies(gameState, operatives);
@@ -567,7 +571,7 @@ const App = (() => {
   async function executeScout() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 4) return;
 
     Operations.startScout(gameState, operatives);
@@ -588,7 +592,11 @@ const App = (() => {
     renderCardList('section-initiates', gameState.initiates.map(i => i.card), {
       badges: gameState.initiates.map(i => `${i.turnsRemaining} turn${i.turnsRemaining !== 1 ? 's' : ''}`)
     });
-    renderCardList('section-operatives', gameState.operatives);
+    // The Leader ("You") always counts as an Operative, so it heads the
+    // Operatives list — rendered as a Joker with no Recruit/detain controls
+    // (this section never shows a Recruit button). assignablePool keeps the
+    // Leader-first ordering and stays safe for saves that predate it.
+    renderCardList('section-operatives', GameState.assignablePool(gameState));
     renderCardList('section-detained', gameState.detainedOperatives.map(d => d.card), {
       badges: gameState.detainedOperatives.map(d => `${d.turnsRemaining} turn${d.turnsRemaining !== 1 ? 's' : ''}`)
     });
@@ -635,10 +643,15 @@ const App = (() => {
    * Render a single card as an HTML string.
    */
   function renderCard(card) {
-    const suitIcons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' };
-    const suitColors = { hearts: 'red', diamonds: 'red', clubs: 'dark', spades: 'dark' };
+    const suitIcons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660', joker: '\u{1F0CF}' };
+    const suitColors = { hearts: 'red', diamonds: 'red', clubs: 'dark', spades: 'dark', joker: 'leader' };
     const icon = suitIcons[card.suit] || '?';
     const colorClass = 'suit-' + (suitColors[card.suit] || 'dark');
+    // The Leader is a Joker rendered as a distinct card ("Leader / You"),
+    // never a bare rank/suit \u2014 and never carries Recruit/detain controls.
+    if (card.isLeader) {
+      return `<span class="card card-leader ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">Leader (You)</span></span>`;
+    }
     return `<span class="card ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">${card.rank}</span><span class="card-value">(${card.value})</span></span>`;
   }
 

@@ -51,6 +51,52 @@ TestRunner.describe('state.js — Game State Management', () => {
     GameState.deleteSave('test-slot-1');
   });
 
+  TestRunner.test('createInitial() seeds a Leader Joker held outside operatives (value 0)', () => {
+    const state = GameState.createInitial();
+    TestRunner.assert(state.leader, 'state.leader exists');
+    TestRunner.assertEqual(state.leader.isLeader, true, 'leader is flagged isLeader');
+    TestRunner.assertEqual(state.leader.suit, 'joker');
+    TestRunner.assertEqual(state.leader.rank, 'Joker');
+    TestRunner.assertEqual(state.leader.value, 0, 'leader value starts at 0');
+    // The Leader is NOT one of the operatives — it lives in its own field.
+    TestRunner.assertArrayLength(state.operatives, 0, 'operatives starts empty');
+    TestRunner.assert(!state.operatives.includes(state.leader),
+      'leader is held outside state.operatives');
+  });
+
+  TestRunner.test('leader persists through save/load', () => {
+    const state = GameState.createInitial();
+    GameState.save(state, 'test-slot-leader');
+    const loaded = GameState.load('test-slot-leader');
+    TestRunner.assert(loaded.leader, 'loaded state has a leader');
+    TestRunner.assertEqual(loaded.leader.isLeader, true);
+    TestRunner.assertEqual(loaded.leader.suit, 'joker');
+    TestRunner.assertEqual(loaded.leader.rank, 'Joker');
+    TestRunner.assertEqual(loaded.leader.value, 0);
+    GameState.deleteSave('test-slot-leader');
+  });
+
+  TestRunner.test('assignablePool() is [leader, ...operatives]', () => {
+    const state = GameState.createInitial();
+    const op = { suit: 'spades', rank: 'A', value: 14 };
+    state.operatives.push(op);
+    const pool = GameState.assignablePool(state);
+    TestRunner.assertArrayLength(pool, 2, 'leader plus the one operative');
+    TestRunner.assertEqual(pool[0], state.leader, 'leader is first in the pool');
+    TestRunner.assertEqual(pool[1], op, 'operatives follow the leader');
+  });
+
+  TestRunner.test('assignablePool() tolerates old saves with no leader field (back-compat)', () => {
+    // A save that predates state.leader: no leader field at all.
+    const legacy = GameState.createInitial();
+    delete legacy.leader;
+    const op = { suit: 'clubs', rank: 'K', value: 13 };
+    legacy.operatives.push(op);
+    const pool = GameState.assignablePool(legacy);
+    TestRunner.assertArrayLength(pool, 1, 'just the operatives when no leader present');
+    TestRunner.assertEqual(pool[0], op);
+  });
+
   TestRunner.test('setInfluence() clamps to 0-500 range', () => {
     const state = GameState.createInitial();
     GameState.setInfluence(state, 999);

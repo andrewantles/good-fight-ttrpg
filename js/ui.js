@@ -185,7 +185,10 @@ const UI = (() => {
       availableOperatives.forEach((op, i) => {
         const label = document.createElement('label');
         label.className = 'operative-option';
-        label.innerHTML = `<input type="checkbox" data-index="${i}"> ${op.rank} of ${op.suit} (${op.value})`;
+        // The Leader (a Joker held in the assignable pool) reads as a clear
+        // "Leader (Joker)" choice rather than a broken "Joker of joker (0)".
+        const desc = op.isLeader ? 'Leader (Joker)' : `${op.rank} of ${op.suit} (${op.value})`;
+        label.innerHTML = `<input type="checkbox" data-index="${i}"> ${desc}`;
         list.appendChild(label);
       });
 
