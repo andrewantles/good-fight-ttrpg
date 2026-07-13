@@ -210,6 +210,11 @@ const App = (() => {
         '<button class="btn-operation" data-operation="average_vandalism">Average Vandalism</button>'
       );
     }
+    if (Operations.canExecute('significant_vandalism', gameState, gameState.operatives)) {
+      buttons.push(
+        '<button class="btn-operation" data-operation="significant_vandalism">Significant Vandalism</button>'
+      );
+    }
     if (Operations.canExecute('gather_supplies', gameState, gameState.operatives)) {
       buttons.push(
         '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
@@ -231,6 +236,11 @@ const App = (() => {
     const averageBtn = container.querySelector('[data-operation="average_vandalism"]');
     if (averageBtn) {
       averageBtn.addEventListener('click', () => executeAverageVandalism());
+    }
+
+    const significantBtn = container.querySelector('[data-operation="significant_vandalism"]');
+    if (significantBtn) {
+      significantBtn.addEventListener('click', () => executeSignificantVandalism());
     }
 
     const gatherBtn = container.querySelector('[data-operation="gather_supplies"]');
@@ -282,6 +292,38 @@ const App = (() => {
     } else {
       addLogEntry(
         `Average Vandalism failed (rolled ${result.roll}). 1 Operative detained for 1 turn.`
+      );
+    }
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Execute Significant Vandalism (#36): pick 4 Operatives (K=4), resolve via
+   * the engine (5 Supplies consumed; success +10 Influence/+10 Heat/+2 recruit
+   * pool, failure detains 1 Operative for 2 turns plus a Compound-Failure
+   * second penalty), then reflect resources / log / personnel in the DOM.
+   *
+   * The Compound-Failure second penalty currently ships with the engine's
+   * default `secondPenaltyChoice` ('detain') — no options are passed here. The
+   * real player-choice modal is #37 and will replace this default once landed.
+   */
+  async function executeSignificantVandalism() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    if (!operatives || operatives.length !== 4) return;
+
+    const result = await Operations.resolveSignificantVandalism(gameState, operatives);
+
+    if (result.success) {
+      addLogEntry(
+        `Significant Vandalism succeeded (rolled ${result.roll}). +10 Influence, +10 Heat, +2 Recruit Pool.`
+      );
+    } else {
+      addLogEntry(
+        `Significant Vandalism failed (rolled ${result.roll}). Compound Failure: 1 Operative detained 2 turns, plus 1 more detained (default).`
       );
     }
 
@@ -565,6 +607,7 @@ const App = (() => {
     renderOperations,
     executeMinorVandalism,
     executeAverageVandalism,
+    executeSignificantVandalism,
     executeGatherSupplies,
     renderResources,
     getInfluenceDie,

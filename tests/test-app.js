@@ -373,6 +373,74 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
 
 });
 
+TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function () {
+
+  TestRunner.test('renders a Significant Vandalism button when executable and clicking it reaches resolveSignificantVandalism', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
+
+    // With zero operatives / supplies, Significant Vandalism (needs 4 operatives,
+    // 5 supplies) is not executable and no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="significant_vandalism"]'),
+      'no Significant Vandalism button when there are no available operatives'
+    );
+
+    // Give the player four available operatives and enough supplies.
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    GameState.addSupplies(App.getState(), 5);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+
+    // Stub the picker to auto-return operatives and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveSignificantVandalism;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveSignificantVandalism = async function (state, operatives, options) {
+      received = operatives;
+      return { roll: 10, success: true };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveSignificantVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 4, 'exactly four operatives assigned (K=4)');
+      TestRunner.assertEqual(received[0], op1, 'the first picked operative was passed to the engine');
+      TestRunner.assertEqual(received[3], op4, 'the fourth picked operative was passed to the engine');
+
+      // Log reflects the Significant Vandalism result.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Significant Vandalism/.test(log), 'log mentions Significant Vandalism');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveSignificantVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
 
   TestRunner.test('renders an Average Vandalism button when executable and clicking it reaches resolveAverageVandalism', async function () {
