@@ -1094,3 +1094,208 @@ TestRunner.describe('operations.js — Late-Game Scout', function () {
   });
 
 });
+
+// ─── Suite: Operations — Late-Game Operation execution ────────────────────────
+
+TestRunner.describe('operations.js — Late-Game Operation execution', function () {
+
+  function twelveOps() {
+    // values 2..13, sum = 90
+    return Array.from({ length: 12 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+  }
+
+  // Force success: opSum=90, heat=10 -> target=180, any roll succeeds.
+  function bootSuccess(type, overrides) {
+    const state = bootTestGame(Object.assign({ heat: 10, influence: 200, supplies: 50 }, overrides));
+    state.operatives = twelveOps();
+    const op = { tableRoll: 0, type };
+    state.availableLateGameOps = [op];
+    return { state, op };
+  }
+
+  // ── canExecute / thresholds ──
+
+  TestRunner.test('canExecuteLateGameOp: requires 12 operatives, 20 supplies, and difficulty threshold', function () {
+    const state = bootTestGame({ influence: 90, supplies: 20, difficulty: 'medium' });
+    state.operatives = twelveOps();
+    TestRunner.assert(Operations.canExecuteLateGameOp(state, state.operatives), 'meets all reqs at medium (90)');
+  });
+
+  TestRunner.test('canExecuteLateGameOp: blocked below the difficulty-appropriate Influence threshold', function () {
+    const state = bootTestGame({ influence: 89, supplies: 20, difficulty: 'medium' });
+    state.operatives = twelveOps();
+    TestRunner.assert(!Operations.canExecuteLateGameOp(state, state.operatives), '89 < 90 threshold at medium');
+  });
+
+  TestRunner.test('canExecuteLateGameOp: threshold scales with difficulty (easy 60 / hard 120)', function () {
+    const easy = bootTestGame({ influence: 60, supplies: 20, difficulty: 'easy' });
+    easy.operatives = twelveOps();
+    TestRunner.assert(Operations.canExecuteLateGameOp(easy, easy.operatives), 'easy passes at 60');
+
+    const hard = bootTestGame({ influence: 60, supplies: 20, difficulty: 'hard' });
+    hard.operatives = twelveOps();
+    TestRunner.assert(!Operations.canExecuteLateGameOp(hard, hard.operatives), 'hard blocked at 60 (needs 120)');
+  });
+
+  TestRunner.test('canExecuteLateGameOp: blocked with too few operatives or supplies', function () {
+    const fewOps = bootTestGame({ influence: 200, supplies: 20, difficulty: 'medium' });
+    fewOps.operatives = twelveOps().slice(0, 11);
+    TestRunner.assert(!Operations.canExecuteLateGameOp(fewOps, fewOps.operatives), '11 operatives is not enough');
+
+    const lowSupplies = bootTestGame({ influence: 200, supplies: 19, difficulty: 'medium' });
+    lowSupplies.operatives = twelveOps();
+    TestRunner.assert(!Operations.canExecuteLateGameOp(lowSupplies, lowSupplies.operatives), '19 supplies is not enough');
+  });
+
+  // ── startLateGameOp (3-turn multi-turn op) ──
+
+  TestRunner.test('startLateGameOp: creates a 3-turn multiTurnOp, consumes 20 supplies, taps 12 operatives', function () {
+    const { state, op } = bootSuccess('neutralize_leadership', { supplies: 50 });
+    Operations.startLateGameOp(state, op, state.operatives);
+    TestRunner.assertEqual(state.supplies, 30, '20 supplies consumed at start');
+    TestRunner.assertEqual(state.operatives.length, 0, '12 operatives tapped');
+    TestRunner.assertEqual(state.multiTurnOps.length, 1, '1 multi-turn op created');
+    TestRunner.assertEqual(state.multiTurnOps[0].operation, 'late_game_op', 'tagged late_game_op');
+    TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 3, '3 turns remaining');
+    TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 12, '12 ops assigned');
+    TestRunner.assertEqual(state.multiTurnOps[0].opportunity, op, 'the opportunity is carried on the op');
+  });
+
+  // ── Success effects (d8/d6 Late-Game Operations table) ──
+
+  TestRunner.test('neutralize_leadership success: -50 Heat', async function () {
+    const { state, op } = bootSuccess('neutralize_leadership', { heat: 60 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.heat, 10, '60 - 50 = 10');
+  });
+
+  TestRunner.test('news_agency success: +50 Influence, -15 Heat', async function () {
+    const { state, op } = bootSuccess('news_agency', { heat: 40, influence: 100 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 150, '100 + 50 influence');
+    TestRunner.assertEqual(state.heat, 25, '40 - 15 heat');
+  });
+
+  TestRunner.test('establish_militia success: -50 Heat', async function () {
+    const { state, op } = bootSuccess('establish_militia', { heat: 70 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.heat, 20, '70 - 50 heat');
+  });
+
+  TestRunner.test('liberate_prison success: +5 Operatives drawn directly to Operatives, +15 Heat', async function () {
+    const { state, op } = bootSuccess('liberate_prison', { heat: 10 });
+    const before = state.operatives.length; // 12
+    Deck.setProvider((count) => Promise.resolve(
+      Array.from({ length: count }, (_, i) => ({ suit: 'clubs', rank: 'K', value: 13, tag: i }))
+    ));
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    Deck.setProvider(null);
+    TestRunner.assertEqual(state.operatives.length, before + 5, '5 operatives added directly');
+    TestRunner.assertEqual(state.recruitPool.length, 0, 'bypasses recruit pool');
+    TestRunner.assertEqual(state.initiates.length, 0, 'bypasses initiates');
+    TestRunner.assertEqual(state.heat, 25, '10 + 15 heat');
+  });
+
+  TestRunner.test('control_supply success: +25 Supplies, +15 Heat', async function () {
+    const { state, op } = bootSuccess('control_supply', { heat: 10, supplies: 50 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.supplies, 75, '50 + 25 supplies (execution does not consume supplies)');
+    TestRunner.assertEqual(state.heat, 25, '10 + 15 heat');
+  });
+
+  TestRunner.test('provisional_government success: +50 Influence', async function () {
+    const { state, op } = bootSuccess('provisional_government', { influence: 100 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 150, '100 + 50 influence');
+  });
+
+  // ── Success bookkeeping ──
+
+  TestRunner.test('success: removes fulfilled opportunity, records completion, returns operatives to pool', async function () {
+    const { state, op } = bootSuccess('neutralize_leadership', { heat: 60 });
+    Dice.setProvider(() => Promise.resolve(5));
+    const res = await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assert(res.success, 'succeeds');
+    TestRunner.assertEqual(state.availableLateGameOps.length, 0, 'opportunity consumed on success');
+    TestRunner.assertEqual(state.completedLateGameOps.length, 1, 'completion recorded');
+    TestRunner.assertEqual(state.completedLateGameOps[0].type, 'neutralize_leadership', 'correct type recorded');
+    TestRunner.assertEqual(state.operatives.length, 12, 'all 12 assigned operatives return on success');
+  });
+
+  // ── Failure ──
+
+  TestRunner.test('failure: captures 2 assigned operatives (recycled to Recruitment Deck, not detained), opportunity remains', async function () {
+    // 12 ops of value 2 -> opSum=24, heat=99 -> target = 100-99+24 = 25. Roll 90 fails.
+    const state = bootTestGame({ heat: 99, influence: 200, supplies: 50 });
+    state.operatives = Array.from({ length: 12 }, () => ({ suit: 'spades', rank: '2', value: 2 }));
+    const deckBefore = state.recruitDeck.length;
+    const op = { tableRoll: 0, type: 'provisional_government' };
+    state.availableLateGameOps = [op];
+
+    Dice.setProvider(() => Promise.resolve(90));
+    const res = await Operations.resolveLateGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+
+    TestRunner.assert(!res.success, 'operation failed');
+    TestRunner.assertEqual(state.detainedOperatives.length, 0, 'NOT detained — this is capture');
+    TestRunner.assertEqual(state.recruitDeck.length, deckBefore + 2, '2 captured cards recycled into Recruitment Deck');
+    TestRunner.assertEqual(state.operatives.length, 10, '2 captured removed; 10 survivors returned');
+    TestRunner.assertEqual(state.availableLateGameOps.length, 1, 'opportunity left available after failure');
+    TestRunner.assertEqual(state.completedLateGameOps.length, 0, 'no completion on failure');
+    TestRunner.assert(!state.victory, 'no victory on failure');
+  });
+
+  // ── Victory ──
+
+  TestRunner.test('completing a 3rd distinct Late-Game Operation type sets the Victory flag', async function () {
+    const state = bootSuccess('neutralize_leadership', { heat: 10 }).state;
+    const opA = { tableRoll: 1, type: 'neutralize_leadership' };
+    const opB = { tableRoll: 2, type: 'news_agency' };
+    const opC = { tableRoll: 6, type: 'provisional_government' };
+    state.availableLateGameOps = [opA, opB, opC];
+
+    Dice.setProvider(() => Promise.resolve(5)); // always succeeds
+    await Operations.resolveLateGameOp(state, opA, state.operatives);
+    TestRunner.assert(!state.victory, 'no victory after 1 completed');
+    await Operations.resolveLateGameOp(state, opB, state.operatives);
+    TestRunner.assert(!state.victory, 'no victory after 2 completed');
+    await Operations.resolveLateGameOp(state, opC, state.operatives);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.completedLateGameOps.length, 3, '3 distinct completions');
+    TestRunner.assert(state.victory, 'victory set on 3rd distinct completed type');
+  });
+
+  // ── Integration with the turn lifecycle ──
+
+  TestRunner.test('Turn.processEndOfTurn resolves a late_game_op when its 3-turn timer expires', async function () {
+    const { state, op } = bootSuccess('neutralize_leadership', { heat: 60 });
+    Operations.startLateGameOp(state, op, state.operatives);
+    // Advance two turns: still in flight.
+    Dice.setProvider(() => Promise.resolve(5));
+    await Turn.processEndOfTurn(state);
+    await Turn.processEndOfTurn(state);
+    TestRunner.assertEqual(state.multiTurnOps.length, 1, 'still in flight after 2 turns');
+    // Third turn: resolves.
+    await Turn.processEndOfTurn(state);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.multiTurnOps.length, 0, 'op resolved and removed after 3rd turn');
+    TestRunner.assertEqual(state.completedLateGameOps.length, 1, 'completion recorded via turn lifecycle');
+    TestRunner.assertEqual(state.heat, 10, '60 - 50 heat applied on resolution');
+    TestRunner.assertEqual(state.operatives.length, 12, 'operatives returned to pool');
+  });
+
+});

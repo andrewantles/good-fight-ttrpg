@@ -54,6 +54,8 @@ const Turn = (() => {
       Operations.resolveScout(state, op.assignedOperatives, options),
     late_game_scout: (state, op, options) =>
       Operations.resolveLateGameScout(state, op.assignedOperatives, options),
+    late_game_op: (state, op) =>
+      Operations.resolveLateGameOp(state, op.opportunity, op.assignedOperatives),
   };
 
   /**

@@ -44,6 +44,10 @@ const GameState = (() => {
       availableLateGameOps: [],
       completedLateGameOps: [],
 
+      // Victory — set true once 3 distinct Late-Game Operation types are
+      // completed (the game's win condition). Consumed by the Victory screen.
+      victory: false,
+
       // Log
       turnLog: [],
     };

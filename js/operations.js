@@ -499,12 +499,161 @@ const Operations = (() => {
     return { roll, success };
   }
 
+  // ─── Late-Game Operation: availability / threshold ──────────────────────────
+
+  // Difficulty-gated Influence threshold for executing a Late-Game Operation.
+  const LATE_GAME_INFLUENCE_THRESHOLD = { easy: 60, medium: 90, hard: 120 };
+
+  /**
+   * Difficulty-appropriate Influence threshold for a Late-Game Operation.
+   * @param {object} state - Game state (reads state.difficulty)
+   * @returns {number}
+   */
+  function lateGameInfluenceThreshold(state) {
+    return LATE_GAME_INFLUENCE_THRESHOLD[state.difficulty] ?? LATE_GAME_INFLUENCE_THRESHOLD.medium;
+  }
+
+  /**
+   * Whether a Late-Game Operation can be executed: 12 Operatives, 20 Supplies,
+   * and total Influence at or above the difficulty-gated threshold (60/90/120).
+   * Influence gates but is not consumed.
+   * @param {object} state
+   * @param {Array} assignedOperatives
+   * @returns {boolean}
+   */
+  function canExecuteLateGameOp(state, assignedOperatives) {
+    return canExecute('late_game_op', state, assignedOperatives, {
+      influenceThreshold: lateGameInfluenceThreshold(state),
+    });
+  }
+
+  // ─── Late-Game Operation: success effects ───────────────────────────────────
+
+  /**
+   * Apply the d6 (rulebook-misprinted "d8") Late-Game Operations table's
+   * Success-column effect for `type`.
+   */
+  async function applyLateGameEffect(state, type) {
+    switch (type) {
+      case 'neutralize_leadership': // Neutralize Regime Leadership
+        GameState.addHeat(state, -50);
+        break;
+      case 'news_agency': // Establish News Agency / Seize Communications
+        GameState.addInfluence(state, 50);
+        GameState.addHeat(state, -15);
+        break;
+      case 'establish_militia': // Establish Militia and Security Forces
+        GameState.addHeat(state, -50);
+        break;
+      case 'liberate_prison': { // Liberate Prison Facilities
+        // +5 Operatives drawn directly to Operatives (bypasses Recruit Pool/Initiate)
+        const drawn = await Deck.draw(state.recruitDeck, 5);
+        state.operatives.push(...drawn);
+        GameState.addHeat(state, 15);
+        break;
+      }
+      case 'control_supply': // Control Supply Networks / Egress Points
+        GameState.addSupplies(state, 25);
+        GameState.addHeat(state, 15);
+        break;
+      case 'provisional_government': // Establish Provisional Government / Elections
+        GameState.addInfluence(state, 50);
+        break;
+    }
+  }
+
+  // ─── Late-Game Operation: Multi-turn Setup ──────────────────────────────────
+
+  /**
+   * Start executing an available Late-Game Operation. Per the rulebook this
+   * "Takes 3 turns" (unlike the immediate Mid-Game Operation), so it runs as a
+   * multi-turn op mirroring Scout/Late-Game Scout: consumes 20 Supplies up
+   * front, taps (removes from the pool) the 12 assigned Operatives, and carries
+   * the opportunity so the resolver can apply the right effect on completion.
+   * The opportunity is left in availableLateGameOps while in flight (removed on
+   * success, retained on failure), keeping the Late-Game Scout dedup honest —
+   * you can't be handed a duplicate type while one is mid-execution.
+   * @param {object} state
+   * @param {object} op - the availableLateGameOps entry (has `.type`)
+   * @param {Array} operatives - the 12 operatives assigned to this operation
+   */
+  function startLateGameOp(state, op, operatives) {
+    GameState.addSupplies(state, -20);
+    const assigned = [...operatives];
+    for (const o of assigned) {
+      const idx = state.operatives.indexOf(o);
+      if (idx !== -1) state.operatives.splice(idx, 1);
+    }
+    state.multiTurnOps.push({
+      operation: 'late_game_op',
+      turnsRemaining: 3,
+      assignedOperatives: assigned,
+      opportunity: op,
+    });
+  }
+
+  // ─── Late-Game Operation: record completion / Victory ───────────────────────
+
+  /**
+   * Record a successfully executed Late-Game Operation (deduped by type) and,
+   * once 3 distinct types are completed, set the Victory flag (the win
+   * condition — "complete any 3 Late-Game Operations").
+   */
+  function recordLateGameCompletion(state, op) {
+    const already = state.completedLateGameOps.some(o => o.type === op.type);
+    if (!already) state.completedLateGameOps.push(op);
+    const distinct = new Set(state.completedLateGameOps.map(o => o.type)).size;
+    if (distinct >= 3) state.victory = true;
+  }
+
+  // ─── Late-Game Operation: resolution ────────────────────────────────────────
+
+  /**
+   * Resolve a Late-Game Operation whose 3-turn assignment has completed.
+   * Check: d100 - Heat + combined value of assigned operative cards.
+   * Success: applies the Late-Game table effect for the opportunity's type,
+   *   removes the fulfilled opportunity from availableLateGameOps, records the
+   *   completion (setting Victory on the 3rd distinct type).
+   * Failure: captures 2 assigned Operatives (cards recycled to the Recruitment
+   *   Deck — not detained); the opportunity is left available to retry.
+   * Either way, surviving assigned operatives return to the pool.
+   *
+   * @param {object} state
+   * @param {object} op - the availableLateGameOps entry (has `.type`)
+   * @param {Array} operatives - operatives assigned to this operation
+   * @returns {{roll: number, success: boolean}}
+   */
+  async function resolveLateGameOp(state, op, operatives) {
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      await applyLateGameEffect(state, op.type);
+      const idx = state.availableLateGameOps.indexOf(op);
+      if (idx !== -1) state.availableLateGameOps.splice(idx, 1);
+      recordLateGameCompletion(state, op);
+    } else {
+      captureOperatives(state, operatives, 2);
+    }
+
+    // Any assigned operative not captured returns to the pool.
+    for (const o of operatives) {
+      if (!state.operatives.includes(o)) {
+        state.operatives.push(o);
+      }
+    }
+
+    return { roll, success };
+  }
+
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   return {
     canExecute,
     canExecuteMidGameOp,
+    canExecuteLateGameOp,
     midGameInfluenceThreshold,
+    lateGameInfluenceThreshold,
     checkBasic,
     checkGatherSupplies,
     checkWithOperatives,
@@ -517,5 +666,7 @@ const Operations = (() => {
     startLateGameScout,
     resolveLateGameScout,
     resolveMidGameOp,
+    startLateGameOp,
+    resolveLateGameOp,
   };
 })();
