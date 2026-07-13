@@ -204,3 +204,49 @@ TestRunner.describe('app.js — Setup Difficulty', function () {
   });
 
 });
+
+TestRunner.describe('app.js — End Turn wiring (#20)', function () {
+
+  TestRunner.test('clicking End Turn runs processEndOfTurn then resolveCrackdown then increments the turn', async function () {
+    // DOM: the End Turn button living inside a game screen container.
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-end-turn">End Turn</button>
+      </div>
+    `;
+
+    App.init();      // wires the #btn-end-turn click handler
+    App.beginGame(); // establishes gameState (currentTurn starts at 1)
+
+    // Stub the two engine steps to record invocation order without side effects.
+    const calls = [];
+    const originalProcess = Turn.processEndOfTurn;
+    const originalCrackdown = Crackdown.resolveCrackdown;
+    Turn.processEndOfTurn = async function () { calls.push('turn'); };
+    Crackdown.resolveCrackdown = async function () {
+      calls.push('crackdown');
+      return {
+        roll: 0, triggered: false, tier: null,
+        penalties: { operatives: 0, initiates: 0, supplies: 0, influence: 0 },
+      };
+    };
+
+    try {
+      document.getElementById('btn-end-turn').click();
+      // Let the async handler chain settle (macrotask drains the microtask queue).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(calls.length, 2, 'both engine steps ran');
+      TestRunner.assertEqual(calls[0], 'turn', 'timers/multi-turn resolved first');
+      TestRunner.assertEqual(calls[1], 'crackdown', 'crackdown/heat reduction second');
+      TestRunner.assertEqual(App.getState().currentTurn, 2, 'turn counter incremented after the sequence');
+    } finally {
+      Turn.processEndOfTurn = originalProcess;
+      Crackdown.resolveCrackdown = originalCrackdown;
+      GameState.deleteSave('current');
+    }
+  });
+
+});

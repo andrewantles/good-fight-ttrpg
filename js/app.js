@@ -345,6 +345,29 @@ const App = (() => {
   }
 
   /**
+   * End the current turn (#20). Runs the full end-of-turn sequence in the
+   * documented order — timer advancement + multi-turn resolution
+   * (Turn.processEndOfTurn), then the Crackdown check + Heat reduction
+   * (Crackdown.resolveCrackdown) — then increments the turn counter, persists,
+   * and re-renders.
+   */
+  async function endTurn() {
+    if (!gameState) return;
+
+    await Turn.processEndOfTurn(gameState);
+    const crackdown = await Crackdown.resolveCrackdown(gameState);
+
+    if (crackdown && crackdown.triggered && crackdown.tier) {
+      addLogEntry(`Crackdown! ${crackdown.tier.name} (rolled ${crackdown.roll} vs Heat).`);
+    }
+
+    gameState.currentTurn += 1;
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
    * Update leader skill level to match the highest operative value.
    */
   function updateLeaderSkill() {
@@ -396,6 +419,12 @@ const App = (() => {
     if (btnReturn) {
       btnReturn.addEventListener('click', () => showScreen('title'));
     }
+
+    // End Turn button — runs the end-of-turn sequence (#20)
+    const btnEndTurn = document.getElementById('btn-end-turn');
+    if (btnEndTurn) {
+      btnEndTurn.addEventListener('click', () => endTurn());
+    }
   }
 
   return {
@@ -414,6 +443,7 @@ const App = (() => {
     attemptRecruit,
     updateLeaderSkill,
     addLogEntry,
+    endTurn,
     syncInputProviders,
     init,
     RESISTANCE_VALUES,
