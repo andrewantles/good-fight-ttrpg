@@ -713,6 +713,177 @@ TestRunner.describe('operations.js — Gather Supplies', function () {
 
 });
 
+// ─── Suite: Operations — Mid-Game Operation execution ─────────────────────────
+
+TestRunner.describe('operations.js — Mid-Game Operation execution', function () {
+
+  function sixOps() {
+    return Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+  }
+
+  TestRunner.test('canExecuteMidGameOp: requires 6 operatives, 10 supplies, and difficulty threshold', function () {
+    const state = bootTestGame({ difficulty: 'medium', influence: 45, supplies: 10 });
+    state.operatives = sixOps();
+    TestRunner.assert(Operations.canExecuteMidGameOp(state, state.operatives), 'meets all reqs at medium (45)');
+  });
+
+  TestRunner.test('canExecuteMidGameOp: blocked below the difficulty-appropriate Influence threshold', function () {
+    const state = bootTestGame({ difficulty: 'medium', influence: 44, supplies: 10 });
+    state.operatives = sixOps();
+    TestRunner.assert(!Operations.canExecuteMidGameOp(state, state.operatives), '44 < 45 threshold at medium');
+  });
+
+  TestRunner.test('canExecuteMidGameOp: threshold scales with difficulty (easy 30 / hard 60)', function () {
+    const easy = bootTestGame({ difficulty: 'easy', influence: 30, supplies: 10 });
+    easy.operatives = sixOps();
+    TestRunner.assert(Operations.canExecuteMidGameOp(easy, easy.operatives), 'easy passes at 30');
+
+    const hard = bootTestGame({ difficulty: 'hard', influence: 30, supplies: 10 });
+    hard.operatives = sixOps();
+    TestRunner.assert(!Operations.canExecuteMidGameOp(hard, hard.operatives), 'hard blocked at 30 (needs 60)');
+  });
+
+  TestRunner.test('canExecuteMidGameOp: blocked with too few operatives or supplies', function () {
+    const fewOps = bootTestGame({ difficulty: 'medium', influence: 45, supplies: 10 });
+    fewOps.operatives = sixOps().slice(0, 5);
+    TestRunner.assert(!Operations.canExecuteMidGameOp(fewOps, fewOps.operatives), '5 operatives is not enough');
+
+    const lowSupplies = bootTestGame({ difficulty: 'medium', influence: 45, supplies: 9 });
+    lowSupplies.operatives = sixOps();
+    TestRunner.assert(!Operations.canExecuteMidGameOp(lowSupplies, lowSupplies.operatives), '9 supplies is not enough');
+  });
+
+});
+
+// ─── Suite: Operations — Mid-Game Operation resolution ────────────────────────
+
+TestRunner.describe('operations.js — Mid-Game Operation resolution', function () {
+
+  function sixOps() {
+    // values 2..7, sum = 27
+    return Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+  }
+
+  // Force success: opSum=27, heat=10 -> target=117, any roll succeeds.
+  function bootSuccess(type, overrides) {
+    const state = bootTestGame(Object.assign({ heat: 10, influence: 0, supplies: 50 }, overrides));
+    state.operatives = sixOps();
+    const op = { tableRoll: 0, type };
+    state.availableMidGameOps = [op];
+    return { state, op };
+  }
+
+  TestRunner.test('resolveMidGameOp: consumes 10 Supplies on execution', async function () {
+    const { state, op } = bootSuccess('embed_mole', { supplies: 50 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    // embed_mole has no supplies effect, so only the -10 execution cost applies.
+    TestRunner.assertEqual(state.supplies, 40, '10 supplies consumed');
+  });
+
+  TestRunner.test('resolveMidGameOp: success removes the fulfilled opportunity', async function () {
+    const { state, op } = bootSuccess('embed_mole');
+    Dice.setProvider(() => Promise.resolve(5));
+    const res = await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assert(res.success, 'succeeds');
+    TestRunner.assertEqual(state.availableMidGameOps.length, 0, 'opportunity consumed on success');
+  });
+
+  TestRunner.test('embed_mole success: -35 Heat', async function () {
+    const { state, op } = bootSuccess('embed_mole', { heat: 40 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.heat, 5, '40 - 35 = 5');
+  });
+
+  TestRunner.test('hack_comm_tower success: +25 Influence, -15 Heat', async function () {
+    const { state, op } = bootSuccess('hack_comm_tower', { heat: 40, influence: 10 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 35, '10 + 25 influence');
+    TestRunner.assertEqual(state.heat, 25, '40 - 15 heat');
+  });
+
+  TestRunner.test('industry_strike success: -35 Heat', async function () {
+    const { state, op } = bootSuccess('industry_strike', { heat: 50 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.heat, 15, '50 - 35 heat');
+  });
+
+  TestRunner.test('break_out success: +2 Operatives drawn directly to Operatives, +10 Heat', async function () {
+    const { state, op } = bootSuccess('break_out', { heat: 10 });
+    const before = state.operatives.length;
+    Deck.setProvider((count) => Promise.resolve(
+      Array.from({ length: count }, (_, i) => ({ suit: 'clubs', rank: 'K', value: 13, tag: i }))
+    ));
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    Deck.setProvider(null);
+    TestRunner.assertEqual(state.operatives.length, before + 2, '2 operatives added directly');
+    TestRunner.assertEqual(state.recruitPool.length, 0, 'bypasses recruit pool');
+    TestRunner.assertEqual(state.initiates.length, 0, 'bypasses initiates');
+    TestRunner.assertEqual(state.heat, 20, '10 + 10 heat');
+  });
+
+  TestRunner.test('intercept_supply success: +15 Supplies, +10 Heat', async function () {
+    const { state, op } = bootSuccess('intercept_supply', { heat: 10, supplies: 50 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    // 50 - 10 (cost) + 15 (effect) = 55
+    TestRunner.assertEqual(state.supplies, 55, '-10 cost then +15 effect');
+    TestRunner.assertEqual(state.heat, 20, '10 + 10 heat');
+  });
+
+  TestRunner.test('clandestine_goods success: +50 Influence', async function () {
+    const { state, op } = bootSuccess('clandestine_goods', { influence: 10 });
+    Dice.setProvider(() => Promise.resolve(5));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.influence, 60, '10 + 50 influence');
+  });
+
+  TestRunner.test('failure: captures 1 assigned operative, card recycled to Recruitment Deck (not detained)', async function () {
+    // opSum=27, heat=99 -> target = 100 - 99 + 27 = 28. Roll 90 fails.
+    const state = bootTestGame({ heat: 99, influence: 0, supplies: 50 });
+    state.operatives = sixOps();
+    const deckBefore = state.recruitDeck.length;
+    const op = { tableRoll: 0, type: 'clandestine_goods' };
+    state.availableMidGameOps = [op];
+
+    Dice.setProvider(() => Promise.resolve(90));
+    const res = await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+
+    TestRunner.assert(!res.success, 'operation failed');
+    TestRunner.assertEqual(state.operatives.length, 5, '1 operative removed from Op Team');
+    TestRunner.assertEqual(state.detainedOperatives.length, 0, 'NOT detained — this is capture');
+    TestRunner.assertEqual(state.recruitDeck.length, deckBefore + 1, 'captured card recycled into Recruitment Deck');
+    TestRunner.assertEqual(state.influence, 0, 'no success effect applied on failure');
+  });
+
+  TestRunner.test('failure: opportunity remains available (not consumed)', async function () {
+    const state = bootTestGame({ heat: 99, influence: 0, supplies: 50 });
+    state.operatives = sixOps();
+    const op = { tableRoll: 0, type: 'clandestine_goods' };
+    state.availableMidGameOps = [op];
+
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveMidGameOp(state, op, state.operatives);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.availableMidGameOps.length, 1, 'opportunity left available after failure');
+  });
+
+});
+
 // ─── Suite 10: Operations — Scout ─────────────────────────────────────────────
 
 TestRunner.describe('operations.js — Scout', function () {
@@ -741,6 +912,19 @@ TestRunner.describe('operations.js — Scout', function () {
     Dice.setProvider(null);
     TestRunner.assertEqual(state.availableMidGameOps.length, 1, '1 mid-game op unlocked');
     TestRunner.assertEqual(state.availableMidGameOps[0].tableRoll, 3, 'correct table roll stored');
+  });
+
+  TestRunner.test('resolveScout success: tags the opportunity with a d6-rolled type name', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 10 });
+    const ops = Array.from({ length: 4 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum=14, target=104 (always succeeds). d100=5, d6=4 -> Break Out Operatives.
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 4][i++]));
+    await Operations.resolveScout(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.availableMidGameOps[0].tableRoll, 4, 'table roll stored');
+    TestRunner.assertEqual(state.availableMidGameOps[0].type, 'break_out', 'd6=4 tags break_out type');
   });
 
   TestRunner.test('resolveScout failure + player chooses detain: 2 operatives detained for 1 turn', async function () {

@@ -16,6 +16,20 @@ const Operations = (() => {
     late_game_op:          { operatives: 12, supplies: 20, influence: 0  },
   };
 
+  // ─── Mid-Game Operations table (d6) ─────────────────────────────────────────
+  // The Scout Success column rolls d6 here to type a scouted opportunity.
+  const MID_GAME_OPS = {
+    1: 'embed_mole',
+    2: 'hack_comm_tower',
+    3: 'industry_strike',
+    4: 'break_out',
+    5: 'intercept_supply',
+    6: 'clandestine_goods',
+  };
+
+  // Difficulty-gated Influence threshold for executing a Mid-Game Operation.
+  const MID_GAME_INFLUENCE_THRESHOLD = { easy: 30, medium: 45, hard: 60 };
+
   // ─── Availability Check ─────────────────────────────────────────────────────
 
   /**
@@ -38,6 +52,28 @@ const Operations = (() => {
     if (state.influence < influenceThreshold) return false;
 
     return true;
+  }
+
+  /**
+   * Difficulty-appropriate Influence threshold for a Mid-Game Operation.
+   * @param {object} state - Game state (reads state.difficulty)
+   * @returns {number}
+   */
+  function midGameInfluenceThreshold(state) {
+    return MID_GAME_INFLUENCE_THRESHOLD[state.difficulty] ?? MID_GAME_INFLUENCE_THRESHOLD.medium;
+  }
+
+  /**
+   * Whether a Mid-Game Operation can be executed: 6 Operatives, 10 Supplies,
+   * and total Influence at or above the difficulty-gated threshold (30/45/60).
+   * @param {object} state
+   * @param {Array} assignedOperatives
+   * @returns {boolean}
+   */
+  function canExecuteMidGameOp(state, assignedOperatives) {
+    return canExecute('mid_game_op', state, assignedOperatives, {
+      influenceThreshold: midGameInfluenceThreshold(state),
+    });
   }
 
   // ─── Check Formulas ─────────────────────────────────────────────────────────
@@ -252,7 +288,7 @@ const Operations = (() => {
 
     if (success) {
       const tableRoll = await Dice.roll('d6');
-      state.availableMidGameOps.push({ tableRoll });
+      state.availableMidGameOps.push({ tableRoll, type: MID_GAME_OPS[tableRoll] });
     } else {
       // Bullet 1: 1 operative detained 1 turn
       detainOperatives(state, operatives, 1, 1);
@@ -272,10 +308,101 @@ const Operations = (() => {
     return { roll, success };
   }
 
+  // ─── Helper: capture operatives (recycled to Recruitment Deck) ──────────────
+
+  /**
+   * Capture (permanently lose) `count` assigned operatives: remove them from
+   * the Op Team and shuffle their cards back into the Recruitment Deck. This is
+   * the Operation-tier failure consequence — distinct from Detained (which
+   * returns operatives after a timer). Mutates the passed `operatives` array.
+   * @returns {Array} the captured cards
+   */
+  function captureOperatives(state, operatives, count) {
+    const captured = [];
+    for (let i = 0; i < count && operatives.length > 0; i++) {
+      const op = operatives.shift();
+      const idx = state.operatives.indexOf(op);
+      if (idx !== -1) state.operatives.splice(idx, 1);
+      captured.push(op);
+    }
+    if (captured.length > 0) {
+      Deck.returnCards(state.recruitDeck, captured);
+    }
+    return captured;
+  }
+
+  // ─── Mid-Game Operation: success effects ────────────────────────────────────
+
+  /**
+   * Apply the d6 Mid-Game Operations table's Success-column effect for `type`.
+   */
+  async function applyMidGameEffect(state, type) {
+    switch (type) {
+      case 'embed_mole': // Embed Mole / Bribe Regime Official
+        GameState.addHeat(state, -35);
+        break;
+      case 'hack_comm_tower': // Hack/Tap/Destroy Comm Tower
+        GameState.addInfluence(state, 25);
+        GameState.addHeat(state, -15);
+        break;
+      case 'industry_strike': // Stage Industry Strike / Public Demonstration
+        GameState.addHeat(state, -35);
+        break;
+      case 'break_out': { // Break Out Imprisoned Operatives
+        // +2 Operatives drawn directly to Operatives (bypasses Recruit Pool/Initiate)
+        const drawn = await Deck.draw(state.recruitDeck, 2);
+        state.operatives.push(...drawn);
+        GameState.addHeat(state, 10);
+        break;
+      }
+      case 'intercept_supply': // Intercept Supply Convoy / Raid Storehouse
+        GameState.addSupplies(state, 15);
+        GameState.addHeat(state, 10);
+        break;
+      case 'clandestine_goods': // Provide Clandestine Goods/Services
+        GameState.addInfluence(state, 50);
+        break;
+    }
+  }
+
+  // ─── Mid-Game Operation: resolution ─────────────────────────────────────────
+
+  /**
+   * Execute an available Mid-Game Operation.
+   * Consumes 10 Supplies, then a d100 - Heat + operative-values check.
+   * Success: applies the d6 table effect for the opportunity's type and
+   *   consumes (removes) the fulfilled opportunity from availableMidGameOps.
+   * Failure: captures 1 random assigned Operative (card recycled to the
+   *   Recruitment Deck) — not detained; the opportunity is left available.
+   *
+   * @param {object} state
+   * @param {object} op - the availableMidGameOps entry (has `.type`)
+   * @param {Array} operatives - operatives assigned to this operation
+   * @returns {{roll: number, success: boolean}}
+   */
+  async function resolveMidGameOp(state, op, operatives) {
+    GameState.addSupplies(state, -10);
+
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      await applyMidGameEffect(state, op.type);
+      const idx = state.availableMidGameOps.indexOf(op);
+      if (idx !== -1) state.availableMidGameOps.splice(idx, 1);
+    } else {
+      captureOperatives(state, operatives, 1);
+    }
+
+    return { roll, success };
+  }
+
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   return {
     canExecute,
+    canExecuteMidGameOp,
+    midGameInfluenceThreshold,
     checkBasic,
     checkGatherSupplies,
     checkWithOperatives,
@@ -285,5 +412,6 @@ const Operations = (() => {
     resolveGatherSupplies,
     startScout,
     resolveScout,
+    resolveMidGameOp,
   };
 })();
