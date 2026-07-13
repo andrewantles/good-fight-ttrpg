@@ -164,6 +164,60 @@ const App = (() => {
   }
 
   /**
+   * Open the in-game Settings modal (#40). Its first slice is a mid-game
+   * Input Mode toggle: two selects (dice / cards) seeded from the current
+   * gameState.inputMode. Applying a change updates gameState.inputMode, calls
+   * syncInputProviders() so the next Dice.roll/Deck.draw honors the new mode,
+   * persists via GameState.save, and closes the modal.
+   *
+   * This also establishes the bare settings-modal container (matching the
+   * js/ui.js .modal-overlay > .modal pattern) that later settings sections
+   * (e.g. save-slot management, #41) can extend.
+   */
+  function openSettings() {
+    if (!gameState) return;
+
+    const modeOptions = (selected) => ['digital', 'physical']
+      .map((v) => `<option value="${v}"${v === selected ? ' selected' : ''}>${v === 'digital' ? 'Digital' : 'Physical'}</option>`)
+      .join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal">
+        <h3>Settings</h3>
+        <fieldset>
+          <legend>Input Mode</legend>
+          <label>Dice:
+            <select data-settings-dice>${modeOptions(gameState.inputMode.dice)}</select>
+          </label>
+          <label>Cards:
+            <select data-settings-cards>${modeOptions(gameState.inputMode.cards)}</select>
+          </label>
+        </fieldset>
+        <div class="choice-buttons">
+          <button type="button" data-settings-apply>Apply</button>
+          <button type="button" data-settings-close>Close</button>
+        </div>
+      </div>
+    `;
+
+    const close = () => overlay.remove();
+
+    overlay.querySelector('[data-settings-apply]').addEventListener('click', () => {
+      gameState.inputMode.dice = overlay.querySelector('[data-settings-dice]').value;
+      gameState.inputMode.cards = overlay.querySelector('[data-settings-cards]').value;
+      syncInputProviders();
+      GameState.save(gameState, 'current');
+      close();
+    });
+
+    overlay.querySelector('[data-settings-close]').addEventListener('click', close);
+
+    document.body.appendChild(overlay);
+  }
+
+  /**
    * Update the resource display in the top bar.
    */
   function renderResources() {
@@ -691,6 +745,12 @@ const App = (() => {
     if (btnEndTurn) {
       btnEndTurn.addEventListener('click', () => endTurn());
     }
+
+    // Settings gear — opens the in-game Settings modal (#40)
+    const btnSettings = document.getElementById('btn-settings');
+    if (btnSettings) {
+      btnSettings.addEventListener('click', () => openSettings());
+    }
   }
 
   return {
@@ -718,6 +778,7 @@ const App = (() => {
     addLogEntry,
     endTurn,
     syncInputProviders,
+    openSettings,
     init,
     RESISTANCE_VALUES,
     REGIME_TYPES,

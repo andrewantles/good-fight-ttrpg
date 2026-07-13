@@ -928,3 +928,93 @@ TestRunner.describe('app.js — Unwinnable Advisory (#14)', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Settings gear: mid-game Input Mode toggle (#40)', function () {
+
+  // Builds a game screen containing the Settings gear button.
+  function setupSettingsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
+      </div>
+    `;
+    App.init();      // wires the #btn-settings click handler
+    App.beginGame(); // establishes gameState (default inputMode: digital/digital)
+  }
+
+  TestRunner.test('clicking the gear opens a settings modal seeded from current inputMode', function () {
+    setupSettingsDOM();
+
+    // No modal before the click.
+    TestRunner.assert(!document.querySelector('.modal-overlay'),
+      'no settings modal before the gear is clicked');
+
+    document.getElementById('btn-settings').click();
+
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay, 'clicking the gear opens a .modal-overlay');
+
+    const diceSelect = overlay.querySelector('[data-settings-dice]');
+    const cardsSelect = overlay.querySelector('[data-settings-cards]');
+    TestRunner.assert(diceSelect && cardsSelect,
+      'modal has dice and cards Input Mode selects');
+    TestRunner.assertEqual(diceSelect.value, 'digital',
+      'dice select seeded from current inputMode.dice');
+    TestRunner.assertEqual(cardsSelect.value, 'digital',
+      'cards select seeded from current inputMode.cards');
+
+    overlay.remove();
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('applying a change updates inputMode, re-syncs providers (real effect), persists, and closes', async function () {
+    setupSettingsDOM();
+
+    document.getElementById('btn-settings').click();
+    const overlay = document.querySelector('.modal-overlay');
+
+    // Switch dice to physical, leave cards digital.
+    const diceSelect = overlay.querySelector('[data-settings-dice]');
+    diceSelect.value = 'physical';
+
+    // Spy on the physical dice provider so we can prove syncInputProviders
+    // actually re-wired Dice to it (rather than asserting an internal call).
+    const originalDiceInput = UI.diceInput;
+    let providerCalled = false;
+    UI.diceInput = function () {
+      providerCalled = true;
+      return Promise.resolve(4);
+    };
+
+    try {
+      overlay.querySelector('[data-settings-apply]').click();
+
+      // State updated.
+      TestRunner.assertEqual(App.getState().inputMode.dice, 'physical',
+        'inputMode.dice updated to physical');
+      TestRunner.assertEqual(App.getState().inputMode.cards, 'digital',
+        'inputMode.cards left unchanged');
+
+      // Persisted to the current slot.
+      const saved = GameState.load('current');
+      TestRunner.assertEqual(saved.inputMode.dice, 'physical',
+        'change persisted through GameState.save/load');
+
+      // Modal closed.
+      TestRunner.assert(!document.querySelector('.modal-overlay'),
+        'settings modal closes after Apply');
+
+      // Real effect: the next Dice.roll now routes through the physical provider.
+      await Dice.roll('d6');
+      TestRunner.assert(providerCalled,
+        'syncInputProviders re-wired Dice to the physical provider after Apply');
+    } finally {
+      UI.diceInput = originalDiceInput;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+});
