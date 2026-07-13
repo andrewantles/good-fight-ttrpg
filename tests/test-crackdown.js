@@ -98,6 +98,7 @@ TestRunner.describe('crackdown.js — Penalty tiers', function () {
     TestRunner.assertEqual(state.recruitDeck.length, 1, 'captured card returned to recruit deck');
     TestRunner.assertEqual(state.recruitDeck[0], card, 'the operative card is back in the deck');
     TestRunner.assertEqual(result.penalties.operatives, 1, 'reports 1 operative captured');
+    TestRunner.assertEqual(state.operativesLost, 1, 'crackdown operative loss counts toward operativesLost');
   });
 
   TestRunner.test('roll 61-80 (Warehouse raid): -2 operatives + -20 influence', async function () {
@@ -188,6 +189,7 @@ TestRunner.describe('crackdown.js — Cascade substitution', function () {
     TestRunner.assertEqual(result.penalties.initiates, 1, '1 initiate captured');
     TestRunner.assertEqual(result.penalties.supplies, 2, '2 supplies lost');
     TestRunner.assertEqual(state.recruitDeck.length, 1, 'captured initiate card returned to deck');
+    TestRunner.assertEqual(state.operativesLost, 0, 'a captured Initiate is not an Operative loss');
   });
 
 });

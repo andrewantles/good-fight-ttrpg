@@ -26,6 +26,10 @@ const GameState = (() => {
       heat: 0,
       supplies: 0,
 
+      // Highest Influence ever reached this game (monotonic; updated by
+      // setInfluence). Reported on the Victory screen.
+      peakInfluence: 0,
+
       // Deck & Personnel
       recruitDeck: [],
       recruitPool: [],
@@ -33,6 +37,11 @@ const GameState = (() => {
       operatives: [],
       detainedOperatives: [],
       leaderSkillLevel: 0,
+
+      // Cumulative count of Operatives permanently lost (captured and recycled
+      // to the Recruitment Deck — detainment is temporary and not counted).
+      // Reported on the Victory screen.
+      operativesLost: 0,
 
       // Turn
       currentTurn: 1,
@@ -59,6 +68,7 @@ const GameState = (() => {
 
   function setInfluence(state, value) {
     state.influence = clamp(value, 0, 500);
+    state.peakInfluence = Math.max(state.peakInfluence || 0, state.influence);
   }
 
   function setHeat(state, value) {

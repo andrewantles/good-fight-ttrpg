@@ -251,6 +251,81 @@ TestRunner.describe('app.js — End Turn wiring (#20)', function () {
 
 });
 
+TestRunner.describe('app.js — Victory screen (#22)', function () {
+
+  TestRunner.test('End Turn that completes a 3rd Late-Game Op (real engine) routes to the Victory screen with stats', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <button id="btn-end-turn">End Turn</button>
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen">
+        <div id="victory-stats"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const s = App.getState();
+
+    // Two distinct Late-Game Ops already done; a 3rd is mid-flight and resolves
+    // this End Turn. Completing it flips the real Victory flag.
+    s.completedLateGameOps = [{ type: 'neutralize_leadership' }, { type: 'news_agency' }];
+    const opC = { tableRoll: 6, type: 'provisional_government' };
+    s.availableLateGameOps = [opC];
+    const assigned = Array.from({ length: 12 }, () => ({ suit: 'hearts', rank: '2', value: 2 }));
+    s.multiTurnOps = [{
+      operation: 'late_game_op', turnsRemaining: 1,
+      assignedOperatives: assigned, opportunity: opC,
+    }];
+    s.heat = 0;               // ensures the d100 check succeeds
+    s.currentTurn = 7;        // "turns taken" should report the turn victory landed on
+    s.peakInfluence = 300;    // an earlier high, larger than the +50 this op adds
+    s.operativesLost = 4;     // prior losses
+
+    Dice.setProvider(() => Promise.resolve(5)); // small roll -> success
+    try {
+      await App.endTurn();
+
+      TestRunner.assert(s.victory, 'the real engine set the Victory flag');
+      TestRunner.assertEqual(App.currentScreen(), 'victory', 'routed to the Victory screen');
+      TestRunner.assertEqual(s.currentTurn, 7, 'turn counter not advanced past the winning turn');
+
+      const stats = document.getElementById('victory-stats').textContent;
+      TestRunner.assert(/7/.test(stats), 'shows turns taken (7)');
+      TestRunner.assert(/4/.test(stats), 'shows operatives lost (4)');
+      TestRunner.assert(/300/.test(stats), 'shows peak Influence (300)');
+    } finally {
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('End Turn with no Victory stays on the game screen', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen">
+        <div id="victory-stats"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.showScreen('game');
+    try {
+      await App.endTurn();
+      TestRunner.assert(!App.getState().victory, 'no victory');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'still on the game screen');
+      TestRunner.assertEqual(App.getState().currentTurn, 2, 'turn advanced normally');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
 
   TestRunner.test('renders a Minor Vandalism button when executable and clicking it reaches resolveMinorVandalism', async function () {

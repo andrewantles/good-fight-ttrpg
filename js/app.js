@@ -735,6 +735,25 @@ const App = (() => {
   }
 
   /**
+   * Render the Victory screen summary (#22): turns taken, operatives lost, and
+   * peak Influence reached. Reads the run totals tracked in game state.
+   */
+  function renderVictory() {
+    if (!gameState) return;
+    const el = document.getElementById('victory-stats');
+    if (!el) return;
+    const turns = gameState.currentTurn;
+    const lost = gameState.operativesLost || 0;
+    const peak = gameState.peakInfluence || 0;
+    el.innerHTML =
+      `<dl class="victory-stat-list">` +
+      `<dt>Turns taken</dt><dd>${turns}</dd>` +
+      `<dt>Operatives lost</dt><dd>${lost}</dd>` +
+      `<dt>Peak Influence</dt><dd>${peak}</dd>` +
+      `</dl>`;
+  }
+
+  /**
    * End the current turn (#20). Runs the full end-of-turn sequence in the
    * documented order — timer advancement + multi-turn resolution
    * (Turn.processEndOfTurn), then the Crackdown check + Heat reduction
@@ -745,6 +764,17 @@ const App = (() => {
     if (!gameState) return;
 
     await Turn.processEndOfTurn(gameState);
+
+    // A Late-Game Operation resolving above may have won the game. Once the
+    // Victory flag is set, the run is over: skip the Crackdown/heat step and
+    // the turn increment, render the summary, and route to the Victory screen.
+    if (gameState.victory) {
+      renderVictory();
+      GameState.save(gameState, 'current');
+      showScreen('victory');
+      return;
+    }
+
     const crackdown = await Crackdown.resolveCrackdown(gameState);
 
     if (crackdown && crackdown.triggered && crackdown.tier) {
@@ -847,6 +877,7 @@ const App = (() => {
     updateLeaderSkill,
     addLogEntry,
     endTurn,
+    renderVictory,
     syncInputProviders,
     openSettings,
     init,

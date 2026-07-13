@@ -51,6 +51,7 @@ const Crackdown = (() => {
         captured.push(state.operatives.shift());
       }
       penalties.operatives += removed;
+      state.operativesLost = (state.operativesLost || 0) + removed;
       const missing = amount - removed;
       if (missing > 0) {
         applyPenalty(state, 'initiates', missing * 2, captured, penalties);

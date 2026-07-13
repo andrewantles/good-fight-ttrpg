@@ -429,6 +429,7 @@ const Operations = (() => {
     }
     if (captured.length > 0) {
       Deck.returnCards(state.recruitDeck, captured);
+      state.operativesLost = (state.operativesLost || 0) + captured.length;
     }
     return captured;
   }

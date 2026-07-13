@@ -1256,6 +1256,7 @@ TestRunner.describe('operations.js — Late-Game Operation execution', function 
     TestRunner.assertEqual(state.availableLateGameOps.length, 1, 'opportunity left available after failure');
     TestRunner.assertEqual(state.completedLateGameOps.length, 0, 'no completion on failure');
     TestRunner.assert(!state.victory, 'no victory on failure');
+    TestRunner.assertEqual(state.operativesLost, 2, 'captured operatives counted as lost (for the Victory screen)');
   });
 
   // ── Victory ──

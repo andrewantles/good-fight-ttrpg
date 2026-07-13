@@ -61,6 +61,18 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assertEqual(state.influence, 250);
   });
 
+  TestRunner.test('peakInfluence tracks the highest Influence ever reached (for the Victory screen)', () => {
+    const state = GameState.createInitial();
+    TestRunner.assertEqual(state.peakInfluence, 0, 'starts at 0');
+    GameState.setInfluence(state, 120);
+    TestRunner.assertEqual(state.peakInfluence, 120, 'rises with Influence');
+    GameState.addInfluence(state, 80);
+    TestRunner.assertEqual(state.peakInfluence, 200, 'tracks via addInfluence too');
+    GameState.setInfluence(state, 50);
+    TestRunner.assertEqual(state.influence, 50, 'Influence dropped');
+    TestRunner.assertEqual(state.peakInfluence, 200, 'peak holds the earlier maximum');
+  });
+
   TestRunner.test('setHeat() clamps to 0-100 range', () => {
     const state = GameState.createInitial();
     GameState.setHeat(state, 200);
