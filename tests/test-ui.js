@@ -190,3 +190,101 @@ TestRunner.describe('ui.js — Card Input', function () {
   });
 
 });
+
+TestRunner.describe('ui.js — Operative Assignment Picker', function () {
+
+  const pool = [
+    { suit: 'hearts', rank: '5', value: 5 },
+    { suit: 'spades', rank: 'K', value: 13 },
+    { suit: 'clubs', rank: '9', value: 9 },
+    { suit: 'diamonds', rank: 'A', value: 15 },
+  ];
+
+  TestRunner.test('assignOperatives creates a modal overlay listing every available operative', async function () {
+    const promise = UI.assignOperatives(1, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    TestRunner.assert(overlay !== null, 'Modal overlay should exist in DOM');
+    const checkboxes = overlay.querySelectorAll('input[type="checkbox"]');
+    TestRunner.assertArrayLength(Array.from(checkboxes), pool.length);
+    checkboxes[0].checked = true;
+    checkboxes[0].dispatchEvent(new Event('change'));
+    overlay.querySelector('[data-submit]').click();
+    await promise;
+  });
+
+  TestRunner.test('assignOperatives submit is disabled until exactly K are selected', async function () {
+    const promise = UI.assignOperatives(2, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    const submit = overlay.querySelector('[data-submit]');
+    const checkboxes = Array.from(overlay.querySelectorAll('input[type="checkbox"]'));
+
+    TestRunner.assert(submit.disabled, 'Submit should start disabled');
+
+    checkboxes[0].checked = true;
+    checkboxes[0].dispatchEvent(new Event('change'));
+    TestRunner.assert(submit.disabled, 'Submit should stay disabled with only 1 of 2 selected');
+
+    checkboxes[1].checked = true;
+    checkboxes[1].dispatchEvent(new Event('change'));
+    TestRunner.assert(!submit.disabled, 'Submit should enable at exactly 2 selected');
+
+    checkboxes[2].checked = true;
+    checkboxes[2].dispatchEvent(new Event('change'));
+    TestRunner.assert(submit.disabled, 'Submit should disable again above 2 selected');
+
+    checkboxes[2].checked = false;
+    checkboxes[2].dispatchEvent(new Event('change'));
+    submit.click();
+    await promise;
+  });
+
+  TestRunner.test('assignOperatives resolves with exactly the K selected operative objects', async function () {
+    const promise = UI.assignOperatives(2, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    const checkboxes = Array.from(overlay.querySelectorAll('input[type="checkbox"]'));
+
+    checkboxes[1].checked = true;
+    checkboxes[1].dispatchEvent(new Event('change'));
+    checkboxes[3].checked = true;
+    checkboxes[3].dispatchEvent(new Event('change'));
+    overlay.querySelector('[data-submit]').click();
+
+    const result = await promise;
+    TestRunner.assertArrayLength(result, 2);
+    TestRunner.assertEqual(result[0], pool[1]);
+    TestRunner.assertEqual(result[1], pool[3]);
+  });
+
+  TestRunner.test('assignOperatives removes the modal from DOM after submit', async function () {
+    const promise = UI.assignOperatives(1, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    const checkbox = overlay.querySelector('input[type="checkbox"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    overlay.querySelector('[data-submit]').click();
+    await promise;
+    TestRunner.assert(document.querySelector('.modal-overlay') === null, 'Modal should be removed after submit');
+  });
+
+  TestRunner.test('assignOperatives enforces the count regardless of K', async function () {
+    const promise = UI.assignOperatives(4, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    const submit = overlay.querySelector('[data-submit]');
+    const checkboxes = Array.from(overlay.querySelectorAll('input[type="checkbox"]'));
+
+    checkboxes.slice(0, 3).forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change'));
+    });
+    TestRunner.assert(submit.disabled, 'Submit should stay disabled below K=4');
+
+    checkboxes[3].checked = true;
+    checkboxes[3].dispatchEvent(new Event('change'));
+    TestRunner.assert(!submit.disabled, 'Submit should enable at exactly K=4');
+
+    submit.click();
+    const result = await promise;
+    TestRunner.assertArrayLength(result, 4);
+  });
+
+});

@@ -132,6 +132,54 @@ const UI = (() => {
     });
   }
 
+  /**
+   * Show a picker letting the player select exactly `count` Operatives
+   * to assign to an Operation.
+   * @param {number} count - Exact number of Operatives to select (K)
+   * @param {Array<{suit, rank, value}>} availableOperatives
+   * @returns {Promise<Array<{suit, rank, value}>>} Resolves with the chosen Operative card objects
+   */
+  function assignOperatives(count, availableOperatives) {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>Select ${count} Operative${count === 1 ? '' : 's'} to assign:</h3>
+          <div class="operative-picker" data-operative-list></div>
+          <button type="button" data-submit disabled>Submit</button>
+        </div>
+      `;
+
+      const list = overlay.querySelector('[data-operative-list]');
+      availableOperatives.forEach((op, i) => {
+        const label = document.createElement('label');
+        label.className = 'operative-option';
+        label.innerHTML = `<input type="checkbox" data-index="${i}"> ${op.rank} of ${op.suit} (${op.value})`;
+        list.appendChild(label);
+      });
+
+      const submitButton = overlay.querySelector('[data-submit]');
+      const checkboxes = Array.from(overlay.querySelectorAll('input[type="checkbox"]'));
+
+      function updateSubmitState() {
+        const checkedCount = checkboxes.filter((cb) => cb.checked).length;
+        submitButton.disabled = checkedCount !== count;
+      }
+
+      checkboxes.forEach((cb) => cb.addEventListener('change', updateSubmitState));
+
+      submitButton.addEventListener('click', function () {
+        const chosen = checkboxes
+          .filter((cb) => cb.checked)
+          .map((cb) => availableOperatives[parseInt(cb.dataset.index, 10)]);
+        overlay.remove();
+        resolve(chosen);
+      });
+
+      document.body.appendChild(overlay);
+    });
+  }
+
   function createOverlay() {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -142,5 +190,6 @@ const UI = (() => {
     diceInput,
     cardInput,
     recruitDieChoice,
+    assignOperatives,
   };
 })();
