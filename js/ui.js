@@ -102,6 +102,36 @@ const UI = (() => {
     });
   }
 
+  /**
+   * Show a base-die choice modal for a Recruit Attempt.
+   * @param {boolean} canAffordSupply - Whether the player has a Supply to spend on d12
+   * @returns {Promise<'d10'|'d12'>} Resolves with the chosen base die
+   */
+  function recruitDieChoice(canAffordSupply) {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>Choose your Recruit Attempt base die:</h3>
+          <div class="choice-buttons">
+            <button type="button" data-choice="d10">d10</button>
+            <button type="button" data-choice="d12" ${canAffordSupply ? '' : 'disabled'}>d12 (spend 1 Supply)</button>
+          </div>
+        </div>
+      `;
+
+      overlay.querySelectorAll('button[data-choice]').forEach((btn) => {
+        btn.addEventListener('click', function () {
+          const choice = btn.dataset.choice;
+          overlay.remove();
+          resolve(choice);
+        });
+      });
+
+      document.body.appendChild(overlay);
+    });
+  }
+
   function createOverlay() {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -111,5 +141,6 @@ const UI = (() => {
   return {
     diceInput,
     cardInput,
+    recruitDieChoice,
   };
 })();

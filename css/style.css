@@ -393,6 +393,12 @@ legend {
   font-size: 1rem;
 }
 
+.modal .choice-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
 .modal button {
   padding: 10px 24px;
   font-size: 1rem;
