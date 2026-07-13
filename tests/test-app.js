@@ -699,3 +699,112 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
+
+  function setupScoutDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('button gated by canExecute: hidden without 4 operatives + 5 supplies, shown with them', function () {
+    setupScoutDOM();
+
+    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies) unavailable.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="scout"]'),
+      'no Scout button when there are no available operatives'
+    );
+
+    // Four operatives but no supplies — still unavailable.
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    App.getState().operatives.push(op1, op2, op3, op4);
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="scout"]'),
+      'no Scout button with 4 operatives but 0 supplies'
+    );
+
+    // Add the 5 supplies — now Scout is available.
+    GameState.addSupplies(App.getState(), 5);
+    App.renderGameState();
+    TestRunner.assert(
+      document.querySelector('#operations-list [data-operation="scout"]'),
+      'Scout button renders with 4 operatives and 5 supplies'
+    );
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('click (real engine): assigns 4 operatives, spends 5 supplies, and shows the multi-turn Scout op in the DOM', async function () {
+    setupScoutDOM();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
+    const op5 = { suit: 'spades', rank: '2', value: 2 }; // a fifth, un-assigned operative
+    App.getState().operatives.push(op1, op2, op3, op4, op5);
+    GameState.addSupplies(App.getState(), 8); // 8 supplies; Scout should consume 5
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(btn, 'Scout button should render when executable');
+
+    const originalAssign = UI.assignOperatives;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count); // deterministic: first K
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const state = App.getState();
+
+      // Real engine effects (Operations.startScout is deterministic, no roll).
+      TestRunner.assertEqual(state.supplies, 3, 'Scout spent 5 supplies (8 - 5)');
+      TestRunner.assertEqual(state.operatives.length, 1,
+        'four operatives removed from the available pool, fifth remains');
+      TestRunner.assertEqual(state.operatives[0], op5,
+        'the un-assigned operative stays available');
+      TestRunner.assertEqual(state.multiTurnOps.length, 1, 'one multi-turn op created');
+      TestRunner.assertEqual(state.multiTurnOps[0].operation, 'scout', 'the multi-turn op is Scout');
+      TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 2, 'Scout runs for 2 turns');
+      TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 4,
+        'four operatives locked into the Scout op');
+
+      // Assigned operatives removed from the personnel display.
+      const opsPanel = document.querySelector('#section-operatives .card-list').textContent;
+      TestRunner.assert(!/Q/.test(opsPanel),
+        'an assigned operative (Q of hearts) no longer appears in the Operatives panel');
+
+      // Multi-turn Scout op reflected in the operations DOM.
+      const opsList = document.getElementById('operations-list').textContent;
+      TestRunner.assert(/Scout/i.test(opsList) && /2 turn/i.test(opsList),
+        'the operations panel shows the in-progress Scout op with its turn countdown');
+
+      // Log reflects the started Scout op.
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Scout/i.test(log), 'log mentions the Scout op');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+});

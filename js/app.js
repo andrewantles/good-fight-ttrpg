@@ -4,6 +4,11 @@
 const App = (() => {
   let activeScreen = null;
 
+  // Human-readable labels for in-progress Multi-turn Operations.
+  const OPERATION_LABELS = {
+    scout: 'Scout',
+  };
+
   // d6 setup tables — exact text from the rulebook
   const RESISTANCE_VALUES = [
     'Liberty & Freedom',
@@ -220,13 +225,27 @@ const App = (() => {
         '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
       );
     }
+    if (Operations.canExecute('scout', gameState, gameState.operatives)) {
+      buttons.push(
+        '<button class="btn-operation" data-operation="scout">Scout</button>'
+      );
+    }
 
-    if (buttons.length === 0) {
+    // In-progress Multi-turn Operations (e.g. Scout) are shown alongside the
+    // available-operation buttons, with their turn countdown.
+    const multiTurnHtml = (gameState.multiTurnOps || []).map(op => {
+      const label = OPERATION_LABELS[op.operation] || op.operation;
+      const turns = op.turnsRemaining;
+      return `<div class="multi-turn-op" data-operation="${op.operation}">`
+        + `Multi-turn Op: ${label} — ${turns} turn${turns !== 1 ? 's' : ''} remaining</div>`;
+    }).join('');
+
+    if (buttons.length === 0 && !multiTurnHtml) {
       container.innerHTML = '<p class="placeholder">No operations available.</p>';
       return;
     }
 
-    container.innerHTML = buttons.join('');
+    container.innerHTML = buttons.join('') + multiTurnHtml;
 
     const minorBtn = container.querySelector('[data-operation="minor_vandalism"]');
     if (minorBtn) {
@@ -246,6 +265,11 @@ const App = (() => {
     const gatherBtn = container.querySelector('[data-operation="gather_supplies"]');
     if (gatherBtn) {
       gatherBtn.addEventListener('click', () => executeGatherSupplies());
+    }
+
+    const scoutBtn = container.querySelector('button[data-operation="scout"]');
+    if (scoutBtn) {
+      scoutBtn.addEventListener('click', () => executeScout());
     }
   }
 
@@ -360,6 +384,28 @@ const App = (() => {
     addLogEntry(
       `Gather Supplies: ${successes}/3 rolls succeeded (${rollList}). +${result.gained} Supplies.`
     );
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Execute the start of a Scout operation (#38): pick 4 Operatives (K=4),
+   * then call the engine's Operations.startScout, which consumes 5 Supplies,
+   * removes the assigned Operatives from the available pool, and registers a
+   * 2-turn Multi-turn Op. There is no dice roll at start — Scout *resolution*
+   * (2 turns later, driven by End Turn) is owned by #19, so this handler has
+   * no success/failure branch; it only reflects the started op in the DOM.
+   */
+  async function executeScout() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    if (!operatives || operatives.length !== 4) return;
+
+    Operations.startScout(gameState, operatives);
+
+    addLogEntry('Scout operation started (−5 Supplies, 4 Operatives assigned). Resolves in 2 turns.');
 
     GameState.save(gameState, 'current');
     renderGameState();
@@ -620,6 +666,7 @@ const App = (() => {
     executeAverageVandalism,
     executeSignificantVandalism,
     executeGatherSupplies,
+    executeScout,
     renderResources,
     getInfluenceDie,
     attemptRecruit,
