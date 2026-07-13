@@ -4,7 +4,7 @@
  * Phase 2 scope (this file):
  *   - Influence die tier helper (getInfluenceDie)
  *   - Leader skill level updates (updateLeaderSkill)
- *   - Recruitment pipeline: drawToPool, attemptRecruit
+ *   - Recruitment pipeline: attemptRecruit
  *
  * NOTE: Several tests below are written against the CORRECT spec and will
  * FAIL with the current buggy implementation of attemptRecruit. That is
@@ -174,31 +174,6 @@ TestRunner.describe('app.js — Leader Skill Level', function () {
 // ─── Suite 3: Recruitment Pipeline ────────────────────────────────────────────
 
 TestRunner.describe('app.js — Recruitment Pipeline', function () {
-
-  TestRunner.test('drawToPool adds drawn cards to recruitPool', async function () {
-    const state = bootTestGame();
-    const deckSizeBefore = state.recruitDeck.length;
-
-    Deck.setProvider(null); // digital mode
-    await App.drawToPool(3);
-
-    const appState = App.getState();
-    TestRunner.assertEqual(appState.recruitPool.length, 3, 'recruitPool should have 3 cards');
-    TestRunner.assertEqual(appState.recruitDeck.length, deckSizeBefore - 3,
-      'deck should be 3 cards smaller');
-    Deck.setProvider(null);
-  });
-
-  TestRunner.test('drawToPool appends when pool already has cards', async function () {
-    const state = bootTestGame();
-    state.recruitPool = [{ suit: 'hearts', rank: '2', value: 2 }];
-
-    Deck.setProvider(null);
-    await App.drawToPool(2);
-
-    TestRunner.assertEqual(App.getState().recruitPool.length, 3);
-    Deck.setProvider(null);
-  });
 
   // ── Integration test #15 (TDD doc) ──────────────────────────────────────────
   // SPEC: Successful recruit attempt moves card from pool → initiates (2-turn timer).

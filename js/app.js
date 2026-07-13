@@ -331,21 +331,6 @@ const App = (() => {
   }
 
   /**
-   * Draw cards to the recruit pool.
-   * @param {number} count
-   */
-  async function drawToPool(count) {
-    if (!gameState) return;
-    const drawn = await Deck.draw(gameState.recruitDeck, count);
-    gameState.recruitPool.push(...drawn);
-    for (const card of drawn) {
-      addLogEntry(`Drew ${card.rank}${suitSymbol(card.suit)} (value ${card.value}) to recruit pool.`);
-    }
-    GameState.save(gameState, 'current');
-    renderGameState();
-  }
-
-  /**
    * Update leader skill level to match the highest operative value.
    */
   function updateLeaderSkill() {
@@ -413,7 +398,6 @@ const App = (() => {
     renderResources,
     getInfluenceDie,
     attemptRecruit,
-    drawToPool,
     updateLeaderSkill,
     addLogEntry,
     syncInputProviders,
