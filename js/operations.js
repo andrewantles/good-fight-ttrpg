@@ -30,6 +30,19 @@ const Operations = (() => {
   // Difficulty-gated Influence threshold for executing a Mid-Game Operation.
   const MID_GAME_INFLUENCE_THRESHOLD = { easy: 30, medium: 45, hard: 60 };
 
+  // ─── Late-Game Operations table (d8) ────────────────────────────────────────
+  // The Late-Game Scout Success column rolls d8 here to type a scouted
+  // opportunity. The rulebook's table only defines rows 1-6; a d8 that lands on
+  // 7 or 8 has no mapped type and is treated as a re-roll at the reroll site.
+  const LATE_GAME_OPS = {
+    1: 'neutralize_leadership',
+    2: 'news_agency',
+    3: 'establish_militia',
+    4: 'liberate_prison',
+    5: 'control_supply',
+    6: 'provisional_government',
+  };
+
   // ─── Availability Check ─────────────────────────────────────────────────────
 
   /**
@@ -123,8 +136,10 @@ const Operations = (() => {
    * choice modal only appears once a failure is confirmed, not on every
    * attempt).
    * @param {object} options - { secondPenaltyChoice?: 'detain' | 'supplies', getSecondPenaltyChoice?: () => Promise<'detain' | 'supplies'> }
+   * @param {number} detainTurns - turns to detain if the player picks 'detain'
+   * @param {number} [suppliesPenalty=2] - supplies lost if the player picks 'supplies'
    */
-  async function resolveCompoundChoice(state, operatives, options, detainTurns) {
+  async function resolveCompoundChoice(state, operatives, options, detainTurns, suppliesPenalty = 2) {
     let choice = (options && options.secondPenaltyChoice) || 'detain';
     if (options && typeof options.getSecondPenaltyChoice === 'function') {
       choice = await options.getSecondPenaltyChoice();
@@ -132,7 +147,7 @@ const Operations = (() => {
     if (choice === 'detain') {
       detainOperatives(state, operatives, 1, detainTurns);
     } else {
-      GameState.addSupplies(state, -2);
+      GameState.addSupplies(state, -suppliesPenalty);
     }
   }
 
@@ -308,6 +323,93 @@ const Operations = (() => {
     return { roll, success };
   }
 
+  // ─── Late-Game Scout: Multi-turn Setup ──────────────────────────────────────
+
+  /**
+   * Start a Late-Game Scout operation (3-turn multi-turn op).
+   * Consumes 8 supplies and locks 6 assigned operatives until it resolves.
+   */
+  function startLateGameScout(state, operatives) {
+    GameState.addSupplies(state, -8);
+    const assigned = [...operatives];
+    for (const op of assigned) {
+      const idx = state.operatives.indexOf(op);
+      if (idx !== -1) state.operatives.splice(idx, 1);
+    }
+    state.multiTurnOps.push({
+      operation: 'late_game_scout',
+      turnsRemaining: 3,
+      assignedOperatives: assigned,
+    });
+  }
+
+  // ─── Late-Game Scout: Resolution ────────────────────────────────────────────
+
+  /**
+   * Roll a d8 on the Late-Game Operations table to produce a typed opportunity,
+   * re-rolling if the resulting type is already completed OR already sitting
+   * unexecuted in availableLateGameOps (dedup deviation — see PRD.md: broader
+   * than the rulebook's literal "already been successfully executed" wording).
+   * A d8 of 7 or 8 maps to no table row and is likewise re-rolled.
+   * Returns the {tableRoll, type} entry, or null if every mapped type is
+   * already held/completed (no opportunity can be produced).
+   */
+  async function rollLateGameOpportunity(state) {
+    const held = new Set([
+      ...state.availableLateGameOps.map(o => o.type),
+      ...state.completedLateGameOps.map(o => o.type),
+    ]);
+    const remaining = Object.values(LATE_GAME_OPS).filter(t => !held.has(t));
+    if (remaining.length === 0) return null;
+
+    // Re-roll until the d8 lands on a mapped, not-already-held/completed type.
+    let tableRoll, type;
+    do {
+      tableRoll = await Dice.roll('d8');
+      type = LATE_GAME_OPS[tableRoll];
+    } while (!type || held.has(type));
+
+    return { tableRoll, type };
+  }
+
+  /**
+   * Resolve a completed Late-Game Scout operation.
+   * Check: d100 - Heat + combined value of assigned operative cards.
+   * Success: roll d8 on the Late-Game Operations table (deduped) and add the
+   *   typed opportunity to availableLateGameOps.
+   * Failure (harsher than Scout):
+   *   Bullet 1 (unconditional): 2 operatives detained 2 turns.
+   *   Bullet 2 (player choice): detain 1 more operative 2 turns OR -4 supplies.
+   *
+   * @param {object} state
+   * @param {Array} operatives - operatives assigned to this operation
+   * @param {object} [options] - { secondPenaltyChoice: 'detain' | 'supplies' }
+   */
+  async function resolveLateGameScout(state, operatives, options) {
+    const roll = await Dice.roll('d100');
+    const success = checkWithOperatives(roll, state, operatives);
+
+    if (success) {
+      const opportunity = await rollLateGameOpportunity(state);
+      if (opportunity) state.availableLateGameOps.push(opportunity);
+    } else {
+      // Bullet 1: 2 operatives detained 2 turns
+      detainOperatives(state, operatives, 2, 2);
+
+      // Bullet 2: player choice — detain 1 more 2 turns OR -4 supplies
+      await resolveCompoundChoice(state, operatives, options, 2, 4);
+    }
+
+    // Any assigned operative not detained returns to the pool.
+    for (const op of operatives) {
+      if (!state.operatives.includes(op)) {
+        state.operatives.push(op);
+      }
+    }
+
+    return { roll, success };
+  }
+
   // ─── Helper: capture operatives (recycled to Recruitment Deck) ──────────────
 
   /**
@@ -412,6 +514,8 @@ const Operations = (() => {
     resolveGatherSupplies,
     startScout,
     resolveScout,
+    startLateGameScout,
+    resolveLateGameScout,
     resolveMidGameOp,
   };
 })();

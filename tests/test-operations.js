@@ -991,3 +991,100 @@ TestRunner.describe('operations.js — Scout', function () {
   });
 
 });
+
+// ─── Suite 11: Operations — Late-Game Scout ───────────────────────────────────
+
+TestRunner.describe('operations.js — Late-Game Scout', function () {
+
+  TestRunner.test('startLateGameScout: creates a 3-turn multiTurnOp, consumes 8 supplies, taps 6 operatives', function () {
+    const state = bootTestGame({ supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    Operations.startLateGameScout(state, ops);
+    TestRunner.assertEqual(state.multiTurnOps.length, 1, '1 multi-turn op created');
+    TestRunner.assertEqual(state.multiTurnOps[0].operation, 'late_game_scout', 'tagged late_game_scout');
+    TestRunner.assertEqual(state.multiTurnOps[0].turnsRemaining, 3, '3 turns remaining');
+    TestRunner.assertEqual(state.multiTurnOps[0].assignedOperatives.length, 6, '6 ops assigned');
+    TestRunner.assertEqual(state.supplies, 4, '8 supplies consumed');
+    TestRunner.assertEqual(state.operatives.length, 0, '6 assigned operatives removed from operatives');
+  });
+
+  TestRunner.test('resolveLateGameScout success: adds a d8-typed late-game opportunity', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum = 2+3+4+5+6+7 = 27, target = 100-10+27 = 117 (always succeeds).
+    // d100=5 (success), d8=4 -> Liberate Prison Facilities.
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 4][i++]));
+    await Operations.resolveLateGameScout(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.availableLateGameOps.length, 1, '1 late-game op unlocked');
+    TestRunner.assertEqual(state.availableLateGameOps[0].tableRoll, 4, 'table roll stored');
+    TestRunner.assertEqual(state.availableLateGameOps[0].type, 'liberate_prison', 'd8=4 tags liberate_prison type');
+  });
+
+  TestRunner.test('resolveLateGameScout success: re-rolls a d8 type already held/completed', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // liberate_prison already available (d8=4) and neutralize_leadership already
+    // completed (d8=1). opSum=27, target=117 (always succeeds).
+    state.availableLateGameOps = [{ tableRoll: 4, type: 'liberate_prison' }];
+    state.completedLateGameOps = [{ type: 'neutralize_leadership' }];
+    // d100=5 (success), d8=4 (held -> reroll), d8=1 (completed -> reroll), d8=2 (news_agency).
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 4, 1, 2][i++]));
+    await Operations.resolveLateGameScout(state, ops);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.availableLateGameOps.length, 2, 'a distinct opportunity added');
+    TestRunner.assertEqual(state.availableLateGameOps[1].type, 'news_agency', 'rerolled to news_agency');
+  });
+
+  TestRunner.test('resolveLateGameScout failure + player chooses detain: 3 operatives detained for 2 turns', async function () {
+    const state = bootTestGame({ heat: 99, supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum=27, target = 100-99+27 = 28. Roll 90 fails.
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveLateGameScout(state, ops, { secondPenaltyChoice: 'detain' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.detainedOperatives.length, 3, '2 unconditional + 1 chosen = 3 detained');
+    TestRunner.assert(
+      state.detainedOperatives.every(d => d.turnsRemaining === 2),
+      'all detained for 2 turns'
+    );
+    TestRunner.assertEqual(state.operatives.length, 3, '3 detained operatives removed; 3 survivors returned');
+    TestRunner.assertEqual(state.supplies, 12, 'supplies unchanged');
+  });
+
+  TestRunner.test('resolveLateGameScout failure + player chooses supplies: 2 detained, -4 supplies', async function () {
+    const state = bootTestGame({ heat: 99, supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    // opSum=27, target = 28. Roll 90 fails.
+    Dice.setProvider(() => Promise.resolve(90));
+    await Operations.resolveLateGameScout(state, ops, { secondPenaltyChoice: 'supplies' });
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.detainedOperatives.length, 2, 'only the 2 unconditional detained');
+    TestRunner.assertEqual(state.operatives.length, 4, '2 detained removed; 4 survivors returned');
+    TestRunner.assertEqual(state.supplies, 8, '-4 supplies as 2nd penalty');
+  });
+
+  TestRunner.test('resolveLateGameScout success after startLateGameScout: assigned operatives return to pool', async function () {
+    const state = bootTestGame({ heat: 10, supplies: 12 });
+    const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
+    state.operatives = [...ops];
+    Operations.startLateGameScout(state, ops);
+    TestRunner.assertEqual(state.operatives.length, 0, 'operatives tapped for the op');
+
+    const assigned = state.multiTurnOps[0].assignedOperatives;
+    // opSum=27, target=117 (always succeeds). d100=5, d8=3.
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve([5, 3][i++]));
+    await Operations.resolveLateGameScout(state, assigned);
+    Dice.setProvider(null);
+    TestRunner.assertEqual(state.operatives.length, 6, 'all 6 assigned operatives return on success');
+  });
+
+});

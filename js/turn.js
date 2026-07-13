@@ -52,6 +52,8 @@ const Turn = (() => {
   const MULTI_TURN_RESOLVERS = {
     scout: (state, op, options) =>
       Operations.resolveScout(state, op.assignedOperatives, options),
+    late_game_scout: (state, op, options) =>
+      Operations.resolveLateGameScout(state, op.assignedOperatives, options),
   };
 
   /**
