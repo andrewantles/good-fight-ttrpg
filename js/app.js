@@ -205,6 +205,11 @@ const App = (() => {
         '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
       );
     }
+    if (Operations.canExecute('average_vandalism', gameState, gameState.operatives)) {
+      buttons.push(
+        '<button class="btn-operation" data-operation="average_vandalism">Average Vandalism</button>'
+      );
+    }
     if (Operations.canExecute('gather_supplies', gameState, gameState.operatives)) {
       buttons.push(
         '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
@@ -221,6 +226,11 @@ const App = (() => {
     const minorBtn = container.querySelector('[data-operation="minor_vandalism"]');
     if (minorBtn) {
       minorBtn.addEventListener('click', () => executeMinorVandalism());
+    }
+
+    const averageBtn = container.querySelector('[data-operation="average_vandalism"]');
+    if (averageBtn) {
+      averageBtn.addEventListener('click', () => executeAverageVandalism());
     }
 
     const gatherBtn = container.querySelector('[data-operation="gather_supplies"]');
@@ -245,6 +255,34 @@ const App = (() => {
       addLogEntry(`Minor Vandalism succeeded (rolled ${result.roll}). +1 Influence, +1 Heat.`);
     } else {
       addLogEntry(`Minor Vandalism failed (rolled ${result.roll}). No effect.`);
+    }
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Execute Average Vandalism (#35): pick 2 Operatives (K=2), resolve via the
+   * engine (3 Supplies consumed; success +3 Influence/+3 Heat/+1 recruit pool,
+   * failure detains 1 Operative for 1 turn), then reflect resources / log /
+   * personnel in the DOM.
+   */
+  async function executeAverageVandalism() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(2, gameState.operatives);
+    if (!operatives || operatives.length !== 2) return;
+
+    const result = await Operations.resolveAverageVandalism(gameState, operatives);
+
+    if (result.success) {
+      addLogEntry(
+        `Average Vandalism succeeded (rolled ${result.roll}). +3 Influence, +3 Heat, +1 Recruit Pool.`
+      );
+    } else {
+      addLogEntry(
+        `Average Vandalism failed (rolled ${result.roll}). 1 Operative detained for 1 turn.`
+      );
     }
 
     GameState.save(gameState, 'current');
@@ -526,6 +564,7 @@ const App = (() => {
     renderGameState,
     renderOperations,
     executeMinorVandalism,
+    executeAverageVandalism,
     executeGatherSupplies,
     renderResources,
     getInfluenceDie,
