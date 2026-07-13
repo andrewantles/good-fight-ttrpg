@@ -250,3 +250,61 @@ TestRunner.describe('app.js — End Turn wiring (#20)', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
+
+  TestRunner.test('renders a Minor Vandalism button when executable and clicking it reaches resolveMinorVandalism', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+      </div>
+    `;
+
+    App.beginGame(); // establishes gameState (starts with no operatives)
+
+    // With zero operatives available, Minor Vandalism is not executable and
+    // no button should render.
+    App.renderGameState();
+    TestRunner.assert(
+      !document.querySelector('#operations-list [data-operation="minor_vandalism"]'),
+      'no Minor Vandalism button when there are no available operatives'
+    );
+
+    // Give the player one available operative so Minor Vandalism becomes executable.
+    const operative = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(operative);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    // Stub the picker to auto-return the operative and the engine call to record it.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveMinorVandalism;
+    let received = null;
+    UI.assignOperatives = async function (count, available) {
+      return available.slice(0, count);
+    };
+    Operations.resolveMinorVandalism = async function (state, operatives) {
+      received = operatives;
+      return { roll: 1, success: true };
+    };
+
+    try {
+      btn.click();
+      // Let the async handler chain settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveMinorVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});

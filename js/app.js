@@ -186,6 +186,59 @@ const App = (() => {
   function renderGameState() {
     renderResources();
     renderPersonnel();
+    renderOperations();
+  }
+
+  /**
+   * Render the available operations into #operations-list.
+   * Minor Vandalism is the first wired operation (#33): a single button,
+   * gated by Operations.canExecute — no shared "render any operation"
+   * abstraction yet.
+   */
+  function renderOperations() {
+    const container = document.getElementById('operations-list');
+    if (!container || !gameState) return;
+
+    const buttons = [];
+    if (Operations.canExecute('minor_vandalism', gameState, gameState.operatives)) {
+      buttons.push(
+        '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
+      );
+    }
+
+    if (buttons.length === 0) {
+      container.innerHTML = '<p class="placeholder">No operations available.</p>';
+      return;
+    }
+
+    container.innerHTML = buttons.join('');
+
+    const minorBtn = container.querySelector('[data-operation="minor_vandalism"]');
+    if (minorBtn) {
+      minorBtn.addEventListener('click', () => executeMinorVandalism());
+    }
+  }
+
+  /**
+   * Execute Minor Vandalism (#33): pick 1 Operative (K=1), resolve via the
+   * engine, then reflect resources / log / personnel in the DOM.
+   */
+  async function executeMinorVandalism() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    if (!operatives || operatives.length !== 1) return;
+
+    const result = await Operations.resolveMinorVandalism(gameState, operatives);
+
+    if (result.success) {
+      addLogEntry(`Minor Vandalism succeeded (rolled ${result.roll}). +1 Influence, +1 Heat.`);
+    } else {
+      addLogEntry(`Minor Vandalism failed (rolled ${result.roll}). No effect.`);
+    }
+
+    GameState.save(gameState, 'current');
+    renderGameState();
   }
 
   /**
@@ -438,6 +491,8 @@ const App = (() => {
     renderCard,
     renderPersonnel,
     renderGameState,
+    renderOperations,
+    executeMinorVandalism,
     renderResources,
     getInfluenceDie,
     attemptRecruit,
