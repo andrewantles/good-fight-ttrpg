@@ -30,10 +30,11 @@ const Operations = (() => {
   // Difficulty-gated Influence threshold for executing a Mid-Game Operation.
   const MID_GAME_INFLUENCE_THRESHOLD = { easy: 30, medium: 45, hard: 60 };
 
-  // ─── Late-Game Operations table (d8) ────────────────────────────────────────
-  // The Late-Game Scout Success column rolls d8 here to type a scouted
-  // opportunity. The rulebook's table only defines rows 1-6; a d8 that lands on
-  // 7 or 8 has no mapped type and is treated as a re-roll at the reroll site.
+  // ─── Late-Game Operations table (d6) ────────────────────────────────────────
+  // The Late-Game Scout Success column rolls d6 here to type a scouted
+  // opportunity. The rulebook prints this table as "d8" but only defines rows
+  // 1-6 (confirmed a misprint — the Mid-Game Operations table above is
+  // correctly labeled d6 for its own 6 rows); a d6 roll is used instead.
   const LATE_GAME_OPS = {
     1: 'neutralize_leadership',
     2: 'news_agency',
@@ -346,11 +347,10 @@ const Operations = (() => {
   // ─── Late-Game Scout: Resolution ────────────────────────────────────────────
 
   /**
-   * Roll a d8 on the Late-Game Operations table to produce a typed opportunity,
+   * Roll a d6 on the Late-Game Operations table to produce a typed opportunity,
    * re-rolling if the resulting type is already completed OR already sitting
    * unexecuted in availableLateGameOps (dedup deviation — see PRD.md: broader
    * than the rulebook's literal "already been successfully executed" wording).
-   * A d8 of 7 or 8 maps to no table row and is likewise re-rolled.
    * Returns the {tableRoll, type} entry, or null if every mapped type is
    * already held/completed (no opportunity can be produced).
    */
@@ -362,12 +362,12 @@ const Operations = (() => {
     const remaining = Object.values(LATE_GAME_OPS).filter(t => !held.has(t));
     if (remaining.length === 0) return null;
 
-    // Re-roll until the d8 lands on a mapped, not-already-held/completed type.
+    // Re-roll until the d6 lands on a not-already-held/completed type.
     let tableRoll, type;
     do {
-      tableRoll = await Dice.roll('d8');
+      tableRoll = await Dice.roll('d6');
       type = LATE_GAME_OPS[tableRoll];
-    } while (!type || held.has(type));
+    } while (held.has(type));
 
     return { tableRoll, type };
   }
@@ -375,7 +375,7 @@ const Operations = (() => {
   /**
    * Resolve a completed Late-Game Scout operation.
    * Check: d100 - Heat + combined value of assigned operative cards.
-   * Success: roll d8 on the Late-Game Operations table (deduped) and add the
+   * Success: roll d6 on the Late-Game Operations table (deduped) and add the
    *   typed opportunity to availableLateGameOps.
    * Failure (harsher than Scout):
    *   Bullet 1 (unconditional): 2 operatives detained 2 turns.

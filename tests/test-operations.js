@@ -1009,30 +1009,36 @@ TestRunner.describe('operations.js — Late-Game Scout', function () {
     TestRunner.assertEqual(state.operatives.length, 0, '6 assigned operatives removed from operatives');
   });
 
-  TestRunner.test('resolveLateGameScout success: adds a d8-typed late-game opportunity', async function () {
+  TestRunner.test('resolveLateGameScout success: adds a d6-typed late-game opportunity', async function () {
     const state = bootTestGame({ heat: 10, supplies: 12 });
     const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
     state.operatives = [...ops];
     // opSum = 2+3+4+5+6+7 = 27, target = 100-10+27 = 117 (always succeeds).
-    // d100=5 (success), d8=4 -> Liberate Prison Facilities.
+    // d100=5 (success), d6=4 -> Liberate Prison Facilities.
+    const dieTypesRolled = [];
     let i = 0;
-    Dice.setProvider(() => Promise.resolve([5, 4][i++]));
+    Dice.setProvider((dieType) => {
+      dieTypesRolled.push(dieType);
+      return Promise.resolve([5, 4][i++]);
+    });
     await Operations.resolveLateGameScout(state, ops);
     Dice.setProvider(null);
     TestRunner.assertEqual(state.availableLateGameOps.length, 1, '1 late-game op unlocked');
     TestRunner.assertEqual(state.availableLateGameOps[0].tableRoll, 4, 'table roll stored');
-    TestRunner.assertEqual(state.availableLateGameOps[0].type, 'liberate_prison', 'd8=4 tags liberate_prison type');
+    TestRunner.assertEqual(state.availableLateGameOps[0].type, 'liberate_prison', 'd6=4 tags liberate_prison type');
+    TestRunner.assertEqual(dieTypesRolled[1], 'd6',
+      'the table roll uses a d6 (rulebook prints "d8" for this table, but only defines 6 rows — a misprint)');
   });
 
-  TestRunner.test('resolveLateGameScout success: re-rolls a d8 type already held/completed', async function () {
+  TestRunner.test('resolveLateGameScout success: re-rolls a d6 type already held/completed', async function () {
     const state = bootTestGame({ heat: 10, supplies: 12 });
     const ops = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
     state.operatives = [...ops];
-    // liberate_prison already available (d8=4) and neutralize_leadership already
-    // completed (d8=1). opSum=27, target=117 (always succeeds).
+    // liberate_prison already available (d6=4) and neutralize_leadership already
+    // completed (d6=1). opSum=27, target=117 (always succeeds).
     state.availableLateGameOps = [{ tableRoll: 4, type: 'liberate_prison' }];
     state.completedLateGameOps = [{ type: 'neutralize_leadership' }];
-    // d100=5 (success), d8=4 (held -> reroll), d8=1 (completed -> reroll), d8=2 (news_agency).
+    // d100=5 (success), d6=4 (held -> reroll), d6=1 (completed -> reroll), d6=2 (news_agency).
     let i = 0;
     Dice.setProvider(() => Promise.resolve([5, 4, 1, 2][i++]));
     await Operations.resolveLateGameScout(state, ops);
@@ -1079,7 +1085,7 @@ TestRunner.describe('operations.js — Late-Game Scout', function () {
     TestRunner.assertEqual(state.operatives.length, 0, 'operatives tapped for the op');
 
     const assigned = state.multiTurnOps[0].assignedOperatives;
-    // opSum=27, target=117 (always succeeds). d100=5, d8=3.
+    // opSum=27, target=117 (always succeeds). d100=5, d6=3.
     let i = 0;
     Dice.setProvider(() => Promise.resolve([5, 3][i++]));
     await Operations.resolveLateGameScout(state, assigned);

@@ -102,7 +102,7 @@ TestRunner.describe('turn.js — Multi-turn Operations', function () {
     const lateOps = Array.from({ length: 6 }, (_, i) => ({ suit: 'hearts', rank: String(i + 2), value: i + 2 }));
     state.multiTurnOps = [{ operation: 'late_game_scout', turnsRemaining: 1, assignedOperatives: lateOps }];
 
-    // d100=5 (success), d8=4 (late-game table roll -> liberate_prison)
+    // d100=5 (success), d6=4 (late-game table roll -> liberate_prison)
     let i = 0;
     Dice.setProvider(() => Promise.resolve([5, 4][i++]));
     await Turn.processEndOfTurn(state);
@@ -110,7 +110,7 @@ TestRunner.describe('turn.js — Multi-turn Operations', function () {
 
     TestRunner.assertEqual(state.multiTurnOps.length, 0, 'resolved op removed from multiTurnOps');
     TestRunner.assertEqual(state.availableLateGameOps.length, 1, '1 late-game op unlocked');
-    TestRunner.assertEqual(state.availableLateGameOps[0].type, 'liberate_prison', 'd8=4 tags liberate_prison');
+    TestRunner.assertEqual(state.availableLateGameOps[0].type, 'liberate_prison', 'd6=4 tags liberate_prison');
   });
 
 });
