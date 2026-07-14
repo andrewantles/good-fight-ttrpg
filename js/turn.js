@@ -91,6 +91,11 @@ const Turn = (() => {
    */
   async function processEndOfTurn(state, options) {
     advanceInitiates(state);
+    // A newly-promoted (possibly higher-value) Operative may raise the Leader's
+    // skill high-water mark (#48). Recompute right after promotions so the mark
+    // rises when a new Operative appears — and, being monotonic, never falls
+    // when one is later lost or detained.
+    GameState.updateLeaderSkill(state);
     releaseDetained(state);
     await advanceMultiTurnOps(state, options);
   }

@@ -194,9 +194,17 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     // d10 rolls 7 (>= card value 3 → success under either the correct or
     // current buggy formula when leaderSkillLevel = 5)
     Dice.setProvider(() => Promise.resolve(7));
+    // The value-5 operative outranks the value-3 target, so the Leader and it
+    // are both eligible (#49) — auto-pick the Leader so the die-choice modal
+    // is the one on screen for chooseBaseDie.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
     const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     chooseBaseDie('d10');
     await promise;
+    UI.recruitAttributerChoice = originalAttributer;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -267,9 +275,16 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
 
     // Roll 5 on d10 — correct: 5 < 8 → FAIL; buggy: 5+10=15 >= 8 → SUCCESS
     Dice.setProvider(() => Promise.resolve(5));
+    // The value-10 operative outranks the value-8 target, so both it and the
+    // Leader are eligible (#49) — auto-pick so the die-choice modal shows.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
     const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     chooseBaseDie('d10');
     await promise;
+    UI.recruitAttributerChoice = originalAttributer;
     Dice.setProvider(null);
 
     const appState = App.getState();
@@ -352,6 +367,89 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     TestRunner.assertEqual(appState.initiates.length, 1);
   });
 
+  // ── Attributer eligibility + selection (#49) ────────────────────────────────
+  // SPEC: The set of units that may perform a Recruit Attempt is the Leader
+  // (always) plus every non-Leader Operative whose value strictly exceeds the
+  // target Recruit's value. When only one qualifies (the Leader alone) no
+  // picker is shown; when more than one qualifies the player chooses.
+
+  TestRunner.test('[spec #49] Leader is always eligible — a high-value Ace with no qualifying operatives shows no picker and records the Leader', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    // Ace (value 15). The K operative (13) does NOT outrank it, so only the
+    // Leader is eligible.
+    state.recruitPool = [{ suit: 'diamonds', rank: 'A', value: 15 }];
+    state.operatives  = [{ suit: 'clubs', rank: 'K', value: 13 }];
+
+    let pickerCalls = 0;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { pickerCalls++; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(3)); // roll math unchanged; outcome irrelevant here
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10'); // single eligible → die modal is on screen synchronously
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(pickerCalls, 0,
+      'no attributer picker is shown when only the Leader qualifies (even vs an Ace)');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/Leader/.test(log), 'the log records the Leader as the attributer');
+  });
+
+  TestRunner.test('[spec #49] only Operatives with value > target join the Leader as eligible attributers', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '9', value: 9 }];
+    state.operatives  = [
+      { suit: 'clubs',  rank: '8', value: 8  }, // 8 <= 9 → NOT eligible
+      { suit: 'spades', rank: 'K', value: 13 }, // 13 > 9 → eligible
+    ];
+
+    let offered = null;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(2));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the picker stub resolve
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assert(offered, 'a picker is offered when more than one unit qualifies');
+    TestRunner.assertEqual(offered.length, 2, 'exactly the Leader plus the one higher-value operative');
+    TestRunner.assert(offered.some((u) => u.isLeader), 'the Leader is always among the eligible');
+    TestRunner.assert(offered.some((u) => u.rank === 'K'), 'the value-13 operative is eligible (> 9)');
+    TestRunner.assert(!offered.some((u) => u.rank === '8'), 'the value-8 operative is NOT eligible (<= 9)');
+  });
+
+  TestRunner.test('[spec #49] the chosen attributer is recorded in the turn log; roll math unchanged', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '5', value: 5 }];
+    state.operatives  = [{ suit: 'spades', rank: 'K', value: 13 }]; // eligible (13 > 5)
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    // Player picks the operative, not the Leader.
+    UI.recruitAttributerChoice = async (eligible) => eligible.find((u) => !u.isLeader);
+
+    // Roll 9 on d10 → 9 >= 5 → success (skill is NOT added to the roll).
+    Dice.setProvider(() => Promise.resolve(9));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.initiates.length, 1, 'success promotes the card pool → Initiate');
+    TestRunner.assertEqual(appState.recruitPool.length, 0, 'the card leaves the pool on success');
+    TestRunner.assertEqual(appState.initiates[0].turnsRemaining, 2, 'Initiate carries the 2-turn timer');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/K♠/.test(log), 'the chosen operative (K♠) is recorded as the attributer');
+  });
+
 });
 
 // ─── Suite 4: Operations.canExecute() — Requirements ──────────────────────────
@@ -367,6 +465,18 @@ TestRunner.describe('operations.js — canExecute Requirements', function () {
   TestRunner.test('Minor Vandalism: false with 0 operatives', function () {
     const state = bootTestGame();
     TestRunner.assert(!Operations.canExecute('minor_vandalism', state, []));
+  });
+
+  TestRunner.test('fresh game: the Leader alone makes Minor Vandalism / Gather Supplies executable (#46)', function () {
+    // A brand-new game has 0 recruited Operatives — the Leader in the
+    // assignable pool must be enough to bootstrap the K=1 Operations.
+    const state = GameState.createInitial();
+    const pool = GameState.assignablePool(state);
+    TestRunner.assertArrayLength(pool, 1, 'pool is just the Leader on a fresh game');
+    TestRunner.assert(Operations.canExecute('minor_vandalism', state, pool),
+      'Minor Vandalism executable with only the Leader');
+    TestRunner.assert(Operations.canExecute('gather_supplies', state, pool),
+      'Gather Supplies executable with only the Leader');
   });
 
   TestRunner.test('Average Vandalism: true with 2 operatives + 3 supplies', function () {
@@ -1297,6 +1407,86 @@ TestRunner.describe('operations.js — Late-Game Operation execution', function 
     TestRunner.assertEqual(state.completedLateGameOps.length, 1, 'completion recorded via turn lifecycle');
     TestRunner.assertEqual(state.heat, 10, '60 - 50 heat applied on resolution');
     TestRunner.assertEqual(state.operatives.length, 12, 'operatives returned to pool');
+  });
+
+});
+
+// ─── Suite: Operations — Leader is permanent and un-losable (#47) ──────────────
+
+TestRunner.describe('operations.js — Leader never detained (#47)', function () {
+
+  // The assignable pool puts the Leader FIRST, so an assigned set that includes
+  // the Leader has it at index 0 — exactly where the old shift()-based detain
+  // would have grabbed it. These tests lock in that the Leader is skipped and a
+  // real (non-Leader) operative absorbs the detainment while the count holds.
+
+  TestRunner.test('Average Vandalism failure with Leader in the set detains a NON-Leader; Leader stays available', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 5 });
+    const realOp = { suit: 'clubs', rank: '6', value: 6 };
+    state.operatives = [realOp];
+    // assignablePool → [leader, realOp]; Leader is index 0.
+    const assigned = GameState.assignablePool(state);
+    TestRunner.assert(assigned[0].isLeader, 'Leader is first in the assigned set');
+
+    // d100=99 (failure: 99 > 10)
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveAverageVandalism(state, assigned);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
+    TestRunner.assert(!state.detainedOperatives[0].card.isLeader, 'the Leader was NOT the detained unit');
+    TestRunner.assertEqual(state.detainedOperatives[0].card, realOp, 'the real operative absorbed the detain');
+    TestRunner.assertEqual(state.operatives.length, 0, 'real operative removed from operatives');
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader still held outside operatives');
+    TestRunner.assertEqual(state.operativesLost, 0, 'detainment is not an operative loss');
+  });
+
+  TestRunner.test('Significant Vandalism compound failure never detains the Leader; real operatives absorb both bullets', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 10 });
+    // 3 real operatives; assignablePool → [leader, op1, op2, op3] (K=4 set).
+    const realOps = [
+      { suit: 'hearts', rank: '5',  value: 5  },
+      { suit: 'clubs',  rank: '6',  value: 6  },
+      { suit: 'spades', rank: '7',  value: 7  },
+    ];
+    state.operatives = [...realOps];
+    const assigned = GameState.assignablePool(state);
+    TestRunner.assert(assigned[0].isLeader, 'Leader is first in the assigned set');
+
+    // d100=99 (failure). Player picks detain for the second bullet too.
+    Dice.setProvider(() => Promise.resolve(99));
+    await Operations.resolveSignificantVandalism(state, assigned, { secondPenaltyChoice: 'detain' });
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 2, 'both bullets detained a unit');
+    TestRunner.assert(
+      state.detainedOperatives.every(d => !d.card.isLeader),
+      'neither detained unit is the Leader'
+    );
+    TestRunner.assert(
+      state.detainedOperatives.every(d => d.turnsRemaining === 2),
+      'both detained for 2 turns'
+    );
+    TestRunner.assertEqual(state.operatives.length, 1, '2 real operatives removed, 1 remains');
+    TestRunner.assert(state.leader && state.leader.isLeader, 'Leader untouched');
+    TestRunner.assertEqual(state.operativesLost, 0, 'detainment does not count as operativesLost');
+  });
+
+  TestRunner.test('detain skips the Leader wherever it sits in the assigned set', async function () {
+    const state = bootTestGame({ heat: 90, influence: 0, supplies: 5 });
+    const op1 = { suit: 'hearts', rank: '5', value: 5 };
+    const op2 = { suit: 'clubs',  rank: '6', value: 6 };
+    state.operatives = [op1, op2];
+    // Leader deliberately placed in the MIDDLE of the assigned set.
+    const assigned = [op1, state.leader, op2];
+
+    Dice.setProvider(() => Promise.resolve(99)); // failure
+    await Operations.resolveAverageVandalism(state, assigned);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
+    TestRunner.assert(!state.detainedOperatives[0].card.isLeader, 'Leader not detained despite mid-set position');
+    TestRunner.assertEqual(state.detainedOperatives[0].card, op1, 'first real operative detained');
   });
 
 });

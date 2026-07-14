@@ -35,6 +35,38 @@ TestRunner.describe('turn.js — Initiate Timers', function () {
 
 });
 
+TestRunner.describe('turn.js — Leader Skill High-Water Mark (#48)', function () {
+
+  TestRunner.test('promoting an Operative raises leaderSkillLevel and syncs leader.value', async function () {
+    const state = GameState.createInitial();
+    const card = { suit: 'spades', rank: 'K', value: 13 };
+    state.initiates = [{ card, turnsRemaining: 1 }];
+
+    await Turn.processEndOfTurn(state);
+
+    TestRunner.assertEqual(state.operatives.length, 1, 'promoted to operative');
+    TestRunner.assertEqual(state.leaderSkillLevel, 13, 'skill rose to the promoted value');
+    TestRunner.assertEqual(state.leader.value, 13, 'leader.value synced to the skill level');
+  });
+
+  TestRunner.test('leaderSkillLevel is monotonic — a later loss does not lower it', async function () {
+    const state = GameState.createInitial();
+    // Promote a high-value operative to set the mark.
+    state.initiates = [{ card: { suit: 'hearts', rank: 'A', value: 15 }, turnsRemaining: 1 }];
+    await Turn.processEndOfTurn(state);
+    TestRunner.assertEqual(state.leaderSkillLevel, 15);
+
+    // That operative is later lost; a smaller one is promoted.
+    state.operatives = [];
+    state.initiates = [{ card: { suit: 'clubs', rank: '9', value: 9 }, turnsRemaining: 1 }];
+    await Turn.processEndOfTurn(state);
+
+    TestRunner.assertEqual(state.leaderSkillLevel, 15, 'ratchet: mark must not drop');
+    TestRunner.assertEqual(state.leader.value, 15, 'leader.value holds the high-water mark');
+  });
+
+});
+
 TestRunner.describe('turn.js — Detained Operative Release', function () {
 
   TestRunner.test('detained timer decrements without releasing when > 0', async function () {

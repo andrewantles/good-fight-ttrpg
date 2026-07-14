@@ -464,6 +464,16 @@ legend {
 .card.suit-red .card-suit { color: var(--red); }
 .card.suit-dark .card-suit { color: var(--text); }
 
+/* The Leader (Joker) — always counts as an Operative, rendered visually
+   distinct from recruited cards so "You" stand out at a glance (#46). */
+.card.suit-leader .card-suit { color: var(--gold); }
+.card.card-leader {
+  padding: 1px 6px;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+}
+.card.card-leader .card-rank { color: var(--gold); }
+
 .card-rank { color: var(--text); }
 .card-value { color: var(--text-muted); font-size: 0.8rem; font-weight: normal; }
 

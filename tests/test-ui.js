@@ -306,6 +306,28 @@ TestRunner.describe('ui.js — Operative Assignment Picker', function () {
     TestRunner.assert(document.querySelector('.modal-overlay') === null, 'Modal should be removed after submit');
   });
 
+  TestRunner.test('assignOperatives renders the Leader as a clear "Leader (Joker)" choice (#46)', async function () {
+    const leader = { isLeader: true, suit: 'joker', rank: 'Joker', value: 0 };
+    const promise = UI.assignOperatives(1, [leader, ...pool]);
+    const overlay = document.querySelector('.modal-overlay');
+    const options = overlay.querySelectorAll('.operative-option');
+    // The Leader is the first selectable option and reads clearly, not as a
+    // broken "Joker of joker (0)" card.
+    TestRunner.assert(/Leader \(Joker\)/.test(options[0].textContent),
+      'Leader option is labelled "Leader (Joker)"');
+    TestRunner.assert(!/of joker/.test(options[0].textContent),
+      'Leader is not rendered as a raw suit/rank card');
+
+    // A K=1 op can execute with only the Leader selected.
+    const checkbox = options[0].querySelector('input[type="checkbox"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    overlay.querySelector('[data-submit]').click();
+    const result = await promise;
+    TestRunner.assertArrayLength(result, 1);
+    TestRunner.assertEqual(result[0], leader, 'resolves with the Leader object');
+  });
+
   TestRunner.test('assignOperatives enforces the count regardless of K', async function () {
     const promise = UI.assignOperatives(4, pool);
     const overlay = document.querySelector('.modal-overlay');

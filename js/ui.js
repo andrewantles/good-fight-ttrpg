@@ -132,6 +132,46 @@ const UI = (() => {
     });
   }
 
+  // Suit glyphs for picker labels (mirrors the card display in js/app.js).
+  const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
+
+  /**
+   * Show a picker letting the player choose which eligible unit performs a
+   * Recruit Attempt (#49). Shown only when more than one attributer is
+   * eligible (the Leader plus any Operative of strictly higher value than the
+   * target Recruit); the caller skips this prompt when only the Leader
+   * qualifies. Mirrors the recruitDieChoice / compoundFailureChoice modal.
+   * @param {Array<{isLeader?, suit, rank, value}>} eligible - Eligible attributers
+   * @returns {Promise<object>} Resolves with the chosen attributer card object
+   */
+  function recruitAttributerChoice(eligible) {
+    return new Promise((resolve) => {
+      const overlay = createOverlay();
+      const buttons = eligible.map((unit, i) => {
+        const label = unit.isLeader
+          ? 'Leader (You)'
+          : `${unit.rank}${SUIT_SYMBOLS[unit.suit] || ''} (${unit.value})`;
+        return `<button type="button" data-attributer-index="${i}">${label}</button>`;
+      }).join('');
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>Choose who performs the Recruit Attempt:</h3>
+          <div class="choice-buttons">${buttons}</div>
+        </div>
+      `;
+
+      overlay.querySelectorAll('button[data-attributer-index]').forEach((btn) => {
+        btn.addEventListener('click', function () {
+          const idx = parseInt(btn.dataset.attributerIndex, 10);
+          overlay.remove();
+          resolve(eligible[idx]);
+        });
+      });
+
+      document.body.appendChild(overlay);
+    });
+  }
+
   /**
    * Show the Compound Failure second-penalty choice modal: detain 1 more
    * Operative, or lose 2 Supplies instead. Resolves the `secondPenaltyChoice`
@@ -185,7 +225,10 @@ const UI = (() => {
       availableOperatives.forEach((op, i) => {
         const label = document.createElement('label');
         label.className = 'operative-option';
-        label.innerHTML = `<input type="checkbox" data-index="${i}"> ${op.rank} of ${op.suit} (${op.value})`;
+        // The Leader (a Joker held in the assignable pool) reads as a clear
+        // "Leader (Joker)" choice rather than a broken "Joker of joker (0)".
+        const desc = op.isLeader ? 'Leader (Joker)' : `${op.rank} of ${op.suit} (${op.value})`;
+        label.innerHTML = `<input type="checkbox" data-index="${i}"> ${desc}`;
         list.appendChild(label);
       });
 
@@ -221,6 +264,7 @@ const UI = (() => {
     diceInput,
     cardInput,
     recruitDieChoice,
+    recruitAttributerChoice,
     assignOperatives,
     compoundFailureChoice,
   };

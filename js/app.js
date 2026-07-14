@@ -141,6 +141,10 @@ const App = (() => {
     const state = GameState.load('current');
     if (!state) return;
     gameState = state;
+    // Back-compat: a mid-game save may carry a nonzero leaderSkillLevel while
+    // leader.value predates the sync (#48). Reconcile so the Leader contributes
+    // its skill to operation math immediately. Guards saves with no leader.
+    GameState.updateLeaderSkill(gameState);
     syncInputProviders();
     showScreen('game');
     renderGameState();
@@ -371,28 +375,32 @@ const App = (() => {
     const container = document.getElementById('operations-list');
     if (!container || !gameState) return;
 
+    // Availability is checked against the assignable pool (Leader + Operatives)
+    // so the Leader can bootstrap K=1 Operations on a fresh game.
+    const pool = GameState.assignablePool(gameState);
+
     const buttons = [];
-    if (Operations.canExecute('minor_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('minor_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
       );
     }
-    if (Operations.canExecute('average_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('average_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="average_vandalism">Average Vandalism</button>'
       );
     }
-    if (Operations.canExecute('significant_vandalism', gameState, gameState.operatives)) {
+    if (Operations.canExecute('significant_vandalism', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="significant_vandalism">Significant Vandalism</button>'
       );
     }
-    if (Operations.canExecute('gather_supplies', gameState, gameState.operatives)) {
+    if (Operations.canExecute('gather_supplies', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
       );
     }
-    if (Operations.canExecute('scout', gameState, gameState.operatives)) {
+    if (Operations.canExecute('scout', gameState, pool)) {
       buttons.push(
         '<button class="btn-operation" data-operation="scout">Scout</button>'
       );
@@ -447,7 +455,7 @@ const App = (() => {
   async function executeMinorVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 1) return;
 
     const result = await Operations.resolveMinorVandalism(gameState, operatives);
@@ -471,7 +479,7 @@ const App = (() => {
   async function executeAverageVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(2, gameState.operatives);
+    const operatives = await UI.assignOperatives(2, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 2) return;
 
     const result = await Operations.resolveAverageVandalism(gameState, operatives);
@@ -505,7 +513,7 @@ const App = (() => {
   async function executeSignificantVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 4) return;
 
     let secondPenaltyChoice = null;
@@ -541,7 +549,7 @@ const App = (() => {
   async function executeGatherSupplies() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, gameState.operatives);
+    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 1) return;
 
     const result = await Operations.resolveGatherSupplies(gameState, operatives);
@@ -567,7 +575,7 @@ const App = (() => {
   async function executeScout() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, gameState.operatives);
+    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
     if (!operatives || operatives.length !== 4) return;
 
     Operations.startScout(gameState, operatives);
@@ -588,7 +596,11 @@ const App = (() => {
     renderCardList('section-initiates', gameState.initiates.map(i => i.card), {
       badges: gameState.initiates.map(i => `${i.turnsRemaining} turn${i.turnsRemaining !== 1 ? 's' : ''}`)
     });
-    renderCardList('section-operatives', gameState.operatives);
+    // The Leader ("You") always counts as an Operative, so it heads the
+    // Operatives list — rendered as a Joker with no Recruit/detain controls
+    // (this section never shows a Recruit button). assignablePool keeps the
+    // Leader-first ordering and stays safe for saves that predate it.
+    renderCardList('section-operatives', GameState.assignablePool(gameState));
     renderCardList('section-detained', gameState.detainedOperatives.map(d => d.card), {
       badges: gameState.detainedOperatives.map(d => `${d.turnsRemaining} turn${d.turnsRemaining !== 1 ? 's' : ''}`)
     });
@@ -635,10 +647,15 @@ const App = (() => {
    * Render a single card as an HTML string.
    */
   function renderCard(card) {
-    const suitIcons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' };
-    const suitColors = { hearts: 'red', diamonds: 'red', clubs: 'dark', spades: 'dark' };
+    const suitIcons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660', joker: '\u{1F0CF}' };
+    const suitColors = { hearts: 'red', diamonds: 'red', clubs: 'dark', spades: 'dark', joker: 'leader' };
     const icon = suitIcons[card.suit] || '?';
     const colorClass = 'suit-' + (suitColors[card.suit] || 'dark');
+    // The Leader is a Joker rendered as a distinct card ("Leader / You"),
+    // never a bare rank/suit \u2014 and never carries Recruit/detain controls.
+    if (card.isLeader) {
+      return `<span class="card card-leader ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">Leader (You)</span></span>`;
+    }
     return `<span class="card ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">${card.rank}</span><span class="card-value">(${card.value})</span></span>`;
   }
 
@@ -665,9 +682,20 @@ const App = (() => {
     const card = gameState.recruitPool[poolIndex];
     if (!card) return;
 
+    // Attributer eligibility (#49): the Leader is always eligible to perform a
+    // Recruit Attempt (per the rules: "...or yourself"), regardless of the
+    // target's value. A non-Leader Operative qualifies only if its value is
+    // strictly greater than the target Recruit's value. The Leader guarantees
+    // ≥1 eligible unit, so we prompt only when more than one qualifies.
+    const eligible = (gameState.leader ? [gameState.leader] : [])
+      .concat(gameState.operatives.filter((op) => op.value > card.value));
+    let attributer = eligible[0];
+    if (eligible.length > 1) {
+      attributer = await UI.recruitAttributerChoice(eligible);
+      if (!attributer) return; // player dismissed the picker without choosing
+    }
+
     // Base die: d10, or d12 if the player spends 1 Supply.
-    // The Leader can always attempt Recruitment (per CONTEXT.md) — this
-    // flow has no per-Operative attempter selection, so no value gate applies.
     const canAffordSupply = gameState.supplies >= 1;
     const dieChoice = await UI.recruitDieChoice(canAffordSupply);
     let baseDie = 'd10';
@@ -695,9 +723,9 @@ const App = (() => {
       // Move from pool to initiates with 2-turn timer
       gameState.recruitPool.splice(poolIndex, 1);
       gameState.initiates.push({ card: card, turnsRemaining: 2 });
-      addLogEntry(`Recruit success! ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) → Initiate (2 turns)`);
+      addLogEntry(`Recruit success! ${attributerLabel(attributer)} recruited ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) → Initiate (2 turns)`);
     } else {
-      addLogEntry(`Recruit failed. ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) — stays in pool.`);
+      addLogEntry(`Recruit failed. ${attributerLabel(attributer)} attempted ${card.rank}${suitSymbol(card.suit)} (${rollBreakdown} = ${total} vs ${target}) — stays in pool.`);
     }
 
     GameState.save(gameState, 'current');
@@ -707,6 +735,15 @@ const App = (() => {
   function suitSymbol(suit) {
     const icons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' };
     return icons[suit] || '';
+  }
+
+  /**
+   * Human-readable label for a Recruit-Attempt attributer (#49), used in the
+   * turn log: "Leader" for the Leader, else the operative's rank + suit glyph.
+   */
+  function attributerLabel(unit) {
+    if (!unit) return 'Leader';
+    return unit.isLeader ? 'Leader' : `${unit.rank}${suitSymbol(unit.suit)}`;
   }
 
   /**
@@ -788,12 +825,14 @@ const App = (() => {
   }
 
   /**
-   * Update leader skill level to match the highest operative value.
+   * Update leader skill level to match the highest operative value. Thin
+   * wrapper delegating to the single engine implementation
+   * (GameState.updateLeaderSkill), which owns the monotonic high-water-mark
+   * logic and the leader.value sync — no competing copy lives here (#48).
    */
   function updateLeaderSkill() {
     if (!gameState) return;
-    const operativeValues = gameState.operatives.map(op => op.value);
-    gameState.leaderSkillLevel = Math.max(gameState.leaderSkillLevel, ...operativeValues);
+    GameState.updateLeaderSkill(gameState);
   }
 
   /**

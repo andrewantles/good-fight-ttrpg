@@ -36,6 +36,13 @@ const GameState = (() => {
       initiates: [],
       operatives: [],
       detainedOperatives: [],
+
+      // The Leader ("yourself") — the player's permanent, un-losable unit,
+      // represented by a Joker. Always counts as an Operative (see
+      // assignablePool) but is held OUTSIDE state.operatives so it is never
+      // recruited, detained, or captured. Value stays 0 (Leader Skill Level is
+      // tracked separately by leaderSkillLevel).
+      leader: { isLeader: true, suit: 'joker', rank: 'Joker', value: 0 },
       leaderSkillLevel: 0,
 
       // Cumulative count of Operatives permanently lost (captured and recycled
@@ -60,6 +67,43 @@ const GameState = (() => {
       // Log
       turnLog: [],
     };
+  }
+
+  /**
+   * The pool of units assignable to Operations: the Leader plus every
+   * Operative. The Leader always counts as an Operative (per CONTEXT.md), so
+   * routing availability and assignment through this accessor lets K=1
+   * Operations (Minor Vandalism, Gather Supplies) light up on a fresh game.
+   * Guards against saves that predate state.leader — those simply yield the
+   * operatives alone rather than crashing.
+   * @param {object} state
+   * @returns {Array} [leader, ...operatives] (or just operatives if no leader)
+   */
+  function assignablePool(state) {
+    return state.leader ? [state.leader, ...state.operatives] : [...state.operatives];
+  }
+
+  /**
+   * Update the Leader's skill level — a monotonic high-water mark equal to the
+   * highest value among current Operatives (per the rulebook: "counting
+   * yourself as an Operative with skill level matching your highest Operative
+   * ... your skill doesn't go down if an Operative is lost"). The mark only
+   * ever rises, so losing/detaining an Operative never lowers it.
+   *
+   * Also syncs state.leader.value to the skill level so the Leader contributes
+   * its skill to operation success math (checkWithOperatives sums operative
+   * values). Lives in the engine so headless simulations get correct Leader
+   * skill without any App/DOM layer.
+   *
+   * Guards the empty-operatives case (mark holds) and saves that predate
+   * state.leader (skill still ratchets; no leader to sync).
+   * @param {object} state
+   */
+  function updateLeaderSkill(state) {
+    const values = state.operatives.map((op) => op.value);
+    const prior = state.leaderSkillLevel || 0;
+    state.leaderSkillLevel = values.length ? Math.max(prior, ...values) : prior;
+    if (state.leader) state.leader.value = state.leaderSkillLevel;
   }
 
   function clamp(value, min, max) {
@@ -121,6 +165,8 @@ const GameState = (() => {
 
   return {
     createInitial,
+    assignablePool,
+    updateLeaderSkill,
     setInfluence,
     setHeat,
     setSupplies,

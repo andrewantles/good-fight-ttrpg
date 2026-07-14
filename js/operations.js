@@ -117,12 +117,26 @@ const Operations = (() => {
   // ─── Helper: detain operatives ──────────────────────────────────────────────
 
   function detainOperatives(state, operatives, count, turns) {
-    for (let i = 0; i < count && operatives.length > 0; i++) {
-      const op = operatives.shift();
+    let detained = 0;
+    let i = 0;
+    // Walk the assigned set from the front, detaining the requested `count` of
+    // real operatives. The Leader (an isLeader Joker) is permanent and
+    // un-losable — it is skipped so it is never detained, even though
+    // assignablePool places it first in the assigned set. Every detaining
+    // Operation is K>=2, so a non-Leader is always present to absorb the hit.
+    while (i < operatives.length && detained < count) {
+      const op = operatives[i];
+      if (op && op.isLeader) {
+        i++;
+        continue;
+      }
       state.detainedOperatives.push({ card: op, turnsRemaining: turns });
-      // Also remove from state.operatives if present
+      // Also remove from state.operatives if present, and from the assigned
+      // set so a compound second penalty / survivor-return picks another unit.
       const idx = state.operatives.indexOf(op);
       if (idx !== -1) state.operatives.splice(idx, 1);
+      operatives.splice(i, 1);
+      detained++;
     }
   }
 

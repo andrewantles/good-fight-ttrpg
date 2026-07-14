@@ -251,6 +251,72 @@ TestRunner.describe('app.js — End Turn wiring (#20)', function () {
 
 });
 
+TestRunner.describe('app.js — Leader Skill high-water mark (#48)', function () {
+
+  function setupGameTopBar() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+        <span id="val-heat"></span>
+        <span id="val-supplies"></span>
+        <span id="val-turn"></span>
+        <span id="val-leader"></span>
+        <div id="operations-list"></div>
+        <div id="section-recruit-pool"><div class="card-list"></div></div>
+        <div id="section-initiates"><div class="card-list"></div></div>
+        <div id="section-operatives"><div class="card-list"></div></div>
+        <div id="section-detained"><div class="card-list"></div></div>
+        <div id="turn-log"></div>
+      </div>
+      <div data-screen="victory" class="screen"><div id="victory-stats"></div></div>
+    `;
+  }
+
+  TestRunner.test('top-bar #val-leader displays the high-water mark after an end-of-turn promotion', async function () {
+    setupGameTopBar();
+    App.beginGame();
+    App.showScreen('game');
+    const s = App.getState();
+    // An Initiate about to finish training this turn.
+    s.initiates = [{ card: { suit: 'spades', rank: 'K', value: 13 }, turnsRemaining: 1 }];
+
+    try {
+      await App.endTurn();
+      TestRunner.assertEqual(s.leaderSkillLevel, 13, 'promotion raised the skill level');
+      TestRunner.assertEqual(document.getElementById('val-leader').textContent, '13',
+        'top bar shows the live high-water mark');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('App.updateLeaderSkill delegates to the engine (no competing implementation)', function () {
+    setupGameTopBar();
+    App.beginGame();
+    const s = App.getState();
+    s.operatives = [{ suit: 'clubs', rank: 'J', value: 11 }];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(s.leaderSkillLevel, 11);
+    TestRunner.assertEqual(s.leader.value, 11, 'engine also synced leader.value');
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('continueGame syncs leader.value to a saved leaderSkillLevel (mid-game load)', function () {
+    setupGameTopBar();
+    const saved = GameState.createInitial();
+    saved.leaderSkillLevel = 7;   // a mid-game high-water mark
+    saved.leader.value = 0;       // an older save left this unsynced
+    GameState.save(saved, 'current');
+
+    App.continueGame();
+    const s = App.getState();
+    TestRunner.assertEqual(s.leader.value, 7, 'leader.value reflects the loaded skill level');
+    GameState.deleteSave('current');
+  });
+
+});
+
 TestRunner.describe('app.js — Victory screen (#22)', function () {
 
   TestRunner.test('End Turn that completes a 3rd Late-Game Op (real engine) routes to the Victory screen with stats', async function () {
@@ -337,17 +403,9 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
       </div>
     `;
 
-    App.beginGame(); // establishes gameState (starts with no operatives)
+    App.beginGame(); // establishes gameState (the Leader bootstraps K=1 ops, #46)
 
-    // With zero operatives available, Minor Vandalism is not executable and
-    // no button should render.
-    App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="minor_vandalism"]'),
-      'no Minor Vandalism button when there are no available operatives'
-    );
-
-    // Give the player one available operative so Minor Vandalism becomes executable.
+    // Give the player one recruited operative alongside the Leader.
     const operative = { suit: 'spades', rank: 'A', value: 14 };
     App.getState().operatives.push(operative);
     App.renderGameState();
@@ -355,12 +413,13 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
     TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
 
-    // Stub the picker to auto-return the operative and the engine call to record it.
+    // Stub the picker to auto-return the recruited operative (not the Leader)
+    // and the engine call to record it.
     const originalAssign = UI.assignOperatives;
     const originalResolve = Operations.resolveMinorVandalism;
     let received = null;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     Operations.resolveMinorVandalism = async function (state, operatives) {
       received = operatives;
@@ -425,6 +484,60 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
 
 });
 
+TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#46)', function () {
+
+  TestRunner.test('fresh game renders Minor Vandalism; clicking it and picking the Leader reaches resolveMinorVandalism with the Leader assigned', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame(); // fresh game: 0 recruited operatives, only the Leader
+
+    App.renderGameState();
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn,
+      'Minor Vandalism renders on a fresh game because the Leader counts as an Operative');
+
+    // Stub the picker to select the Leader (the first entry of the assignable
+    // pool) and spy on the engine call.
+    const originalAssign = UI.assignOperatives;
+    const originalResolve = Operations.resolveMinorVandalism;
+    let received = null;
+    let offered = null;
+    UI.assignOperatives = async function (count, available) {
+      offered = available;
+      // pick the Leader specifically
+      return available.filter((o) => o.isLeader).slice(0, count);
+    };
+    Operations.resolveMinorVandalism = async function (state, operatives) {
+      received = operatives;
+      return { roll: 1, success: true };
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(offered && offered.some((o) => o.isLeader),
+        'the assignment picker was offered the Leader');
+      TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
+      TestRunner.assertEqual(received.length, 1, 'exactly one unit assigned (K=1)');
+      TestRunner.assertEqual(received[0], App.getState().leader,
+        'the Leader was passed to the engine as the assigned operative');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Operations.resolveMinorVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
 
   TestRunner.test('renders a Gather Supplies button when executable and clicking it reaches resolveGatherSupplies', async function () {
@@ -437,17 +550,9 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
       </div>
     `;
 
-    App.beginGame(); // establishes gameState (starts with no operatives)
+    App.beginGame(); // establishes gameState (the Leader bootstraps K=1 ops, #46)
 
-    // With zero operatives available, Gather Supplies is not executable and
-    // no button should render.
-    App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="gather_supplies"]'),
-      'no Gather Supplies button when there are no available operatives'
-    );
-
-    // Give the player one available operative so Gather Supplies becomes executable.
+    // Give the player one recruited operative alongside the Leader.
     const operative = { suit: 'clubs', rank: 'K', value: 13 };
     App.getState().operatives.push(operative);
     App.renderGameState();
@@ -455,12 +560,13 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
     const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
     TestRunner.assert(btn, 'Gather Supplies button should render when executable');
 
-    // Stub the picker to auto-return the operative and the engine call to record it.
+    // Stub the picker to auto-return the recruited operative (not the Leader)
+    // and the engine call to record it.
     const originalAssign = UI.assignOperatives;
     const originalResolve = Operations.resolveGatherSupplies;
     let received = null;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     Operations.resolveGatherSupplies = async function (state, operatives) {
       received = operatives;
@@ -522,7 +628,7 @@ TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function 
     const originalChoice = UI.compoundFailureChoice;
     let choiceModalShown = false;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     UI.compoundFailureChoice = async function () {
       choiceModalShown = true;
@@ -562,7 +668,7 @@ TestRunner.describe('app.js — Compound Failure choice wiring (#37)', function 
     const originalChoice = UI.compoundFailureChoice;
     let choiceModalShown = false;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     UI.compoundFailureChoice = async function () {
       choiceModalShown = true;
@@ -628,7 +734,7 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
     const originalResolve = Operations.resolveSignificantVandalism;
     let received = null;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     UI.compoundFailureChoice = async function () {
       return 'detain';
@@ -698,7 +804,7 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
     const originalResolve = Operations.resolveAverageVandalism;
     let received = null;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
     Operations.resolveAverageVandalism = async function (state, operatives) {
       received = operatives;
@@ -750,7 +856,7 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
 
     const originalAssign = UI.assignOperatives;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+      return available.filter((o) => !o.isLeader).slice(0, count);
     };
 
     try {
@@ -842,7 +948,7 @@ TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
 
     const originalAssign = UI.assignOperatives;
     UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count); // deterministic: first K
+      return available.filter((o) => !o.isLeader).slice(0, count); // deterministic: first K recruited
     };
 
     try {
@@ -1251,6 +1357,150 @@ TestRunner.describe('app.js — Settings gear: save-slot save/load/delete (#41 r
 
     overlay.remove();
     clearAllSlots();
+  });
+
+});
+
+TestRunner.describe('app.js — Leader in the Operatives panel (#46)', function () {
+
+  function setupPersonnelDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('renderPersonnel shows the Leader as a Joker in the Operatives section on a fresh game', function () {
+    setupPersonnelDOM();
+    App.renderPersonnel();
+
+    const opsList = document.querySelector('#section-operatives .card-list');
+    // Not the empty "None" placeholder — the Leader is always present.
+    TestRunner.assert(!/None/.test(opsList.textContent),
+      'operatives section is not empty — the Leader is shown');
+    // Visually distinct Leader card.
+    const leaderCard = opsList.querySelector('.card-leader');
+    TestRunner.assert(leaderCard, 'a visually-distinct .card-leader is rendered');
+    TestRunner.assert(/Leader/i.test(leaderCard.textContent),
+      'the Leader card is labelled Leader');
+    // Rendered as a Joker, not a broken "?" card.
+    TestRunner.assert(!/\?/.test(leaderCard.textContent),
+      'joker suit does not render as a "?" placeholder');
+  });
+
+  TestRunner.test('the Leader carries no Recruit or detain controls', function () {
+    setupPersonnelDOM();
+    App.renderPersonnel();
+
+    const opsList = document.querySelector('#section-operatives .card-list');
+    TestRunner.assert(!opsList.querySelector('.btn-recruit'),
+      'no Recruit button on the Leader (or any operative)');
+    // The Leader also appears before any recruited operatives.
+    const op = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(op);
+    App.renderPersonnel();
+    const rows = document.querySelectorAll('#section-operatives .card-row');
+    TestRunner.assert(/Leader/i.test(rows[0].textContent), 'Leader renders first');
+    TestRunner.assertEqual(rows.length, 2, 'Leader plus the one recruited operative');
+
+    GameState.deleteSave('current');
+  });
+
+});
+
+TestRunner.describe('app.js — Recruit-attempt attributer wiring (#49)', function () {
+
+  function setupRecruitDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('clicking a Recruit button reaches recruit resolution with the chosen attributer', async function () {
+    setupRecruitDOM();
+    const state = App.getState();
+    // Target value 9; the K operative (13 > 9) joins the Leader as eligible.
+    state.recruitPool = [{ suit: 'hearts', rank: '9', value: 9 }];
+    state.operatives  = [{ suit: 'spades', rank: 'K', value: 13 }];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled card');
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    let offered = null;
+    // Multiple eligible → the picker is invoked; the player picks the operative.
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible.find((u) => u.rank === 'K'); };
+    UI.recruitDieChoice = async () => 'd10';
+
+    try {
+      Dice.setProvider(() => Promise.resolve(10)); // 10 >= 9 → success
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assert(offered && offered.some((u) => u.isLeader) && offered.some((u) => u.rank === 'K'),
+        'the picker was offered the Leader plus the higher-value operative');
+      TestRunner.assertEqual(App.getState().initiates.length, 1, 'success promoted the card to an Initiate');
+      TestRunner.assertEqual(App.getState().recruitPool.length, 0, 'the card left the recruit pool');
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/K♠ recruited/.test(log), 'the chosen operative (K♠) is recorded in the log');
+    } finally {
+      Dice.setProvider(null);
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('when only the Leader is eligible, clicking Recruit proceeds with no picker', async function () {
+    setupRecruitDOM();
+    const state = App.getState();
+    // Ace target (15); no operative outranks it, so only the Leader qualifies.
+    state.recruitPool = [{ suit: 'diamonds', rank: 'A', value: 15 }];
+    state.operatives  = [{ suit: 'clubs', rank: 'K', value: 13 }];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled Ace');
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    let pickerCalls = 0;
+    UI.recruitAttributerChoice = async (eligible) => { pickerCalls++; return eligible[0]; };
+    UI.recruitDieChoice = async () => 'd10';
+
+    try {
+      Dice.setProvider(() => Promise.resolve(3)); // outcome irrelevant; roll math unchanged
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(pickerCalls, 0, 'no picker shown when only the Leader qualifies');
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Leader/.test(log), 'the Leader is recorded as the attributer');
+    } finally {
+      Dice.setProvider(null);
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      GameState.deleteSave('current');
+    }
   });
 
 });
