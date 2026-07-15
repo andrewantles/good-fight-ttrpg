@@ -52,8 +52,19 @@
     #btn-run:disabled { opacity: 0.5; cursor: progress; }
     #run-progress { color: #6fcf6f; font-size: 0.9rem; align-self: center; min-width: 80px; }
 
-    /* Export buttons (#27) will be added inside this slot — left empty on purpose. */
+    /* Export buttons (#27). */
     #export-actions { display: flex; gap: 8px; align-items: center; }
+    #export-actions button {
+      background: #0f1626;
+      color: #c9a84c;
+      border: 1px solid #c9a84c;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #export-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .charts {
       display: grid;
@@ -106,7 +117,10 @@
       </div>
       <button id="btn-run">Run Batch</button>
       <span id="run-progress"></span>
-      <div id="export-actions"><!-- #27 export buttons mount here --></div>
+      <div id="export-actions">
+        <button id="btn-export-csv" disabled>Export CSV</button>
+        <button id="btn-export-json" disabled>Export JSON</button>
+      </div>
     </div>
 
     <div class="charts">
@@ -170,6 +184,7 @@
   <script src="js/simulation/metrics.js"></script>
   <script src="js/simulation/batch.js"></script>
   <script src="js/simulation/dashboard.js"></script>
+  <script src="js/simulation/export.js"></script>
 
   <script>
     // Thin render/wiring bootstrap. All chart-data logic lives in dashboard.js
@@ -177,6 +192,7 @@
     // and updates a couple of text captions, so the page has no untested logic.
     (function () {
       const realChartFactory = Dashboard.defaultChartFactory();
+      const exportControls = Export.wireExportControls(document.getElementById('sim-app'), {});
 
       function setCaptions(result) {
         const agg = result.aggregate || {};
@@ -197,6 +213,7 @@
         render: function (result) {
           Dashboard.renderAll(result, { chartFactory: realChartFactory });
           setCaptions(result);
+          if (exportControls) exportControls.setResult(result);
         },
       });
     })();
