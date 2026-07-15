@@ -1993,3 +1993,181 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
   });
 
 });
+
+TestRunner.describe('app.js — Backfill DOM-wiring tests (#10)', function () {
+
+  // ADR-0002: every button whose handler calls into an engine module gets a
+  // wiring test asserting the CLICK actually reaches that engine call, so a
+  // disconnected/misrouted handler is caught. Each test below stubs the exact
+  // engine method (or drives a real engine effect) and asserts the click hits
+  // it — meaning it would fail if the handler's engine call were removed.
+
+  // ── Recruit button → Dice engine (Dice.roll) ───────────────────────────────
+  // The existing #49 tests assert the Recruit click's *outcome* via a Dice
+  // provider; this one pins the wiring directly to the Dice.roll engine method.
+  TestRunner.test('clicking a Recruit button reaches the Dice engine (Dice.roll)', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+    const state = App.getState();
+    // Only the Leader is eligible (no Operatives), so no attributer picker fires.
+    state.recruitPool = [{ suit: 'hearts', rank: '4', value: 4 }];
+    state.operatives = [];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled card');
+
+    const originalDie = UI.recruitDieChoice;
+    const originalRoll = Dice.roll;
+    UI.recruitDieChoice = async () => 'd10';
+    let rollCalls = 0;
+    Dice.roll = async function () { rollCalls++; return 10; };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      TestRunner.assert(rollCalls > 0,
+        'the Recruit click reached Dice.roll (the dice engine)');
+    } finally {
+      UI.recruitDieChoice = originalDie;
+      Dice.roll = originalRoll;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Begin button → Deck engine (Deck.shuffle) ──────────────────────────────
+  TestRunner.test('clicking Begin reaches the Deck engine (Deck.shuffle) and starts a game', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <button id="btn-begin">Begin</button>
+        <select id="input-mode-dice"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+        <select id="input-mode-cards"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    App.init(); // wires the #btn-begin click handler
+
+    const originalShuffle = Deck.shuffle;
+    let shuffleCalls = 0;
+    Deck.shuffle = function (deck) { shuffleCalls++; return originalShuffle(deck); };
+
+    try {
+      document.getElementById('btn-begin').click();
+      TestRunner.assert(shuffleCalls > 0,
+        'the Begin click reached Deck.shuffle (the deck engine)');
+      TestRunner.assert(App.getState() !== null, 'Begin created a game state');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'Begin routed to the game screen');
+    } finally {
+      Deck.shuffle = originalShuffle;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Continue button → state engine (GameState.load) ────────────────────────
+  TestRunner.test('clicking Continue reaches the state engine (GameState.load)', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen">
+        <button id="btn-continue">Continue</button>
+      </div>
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+      </div>
+    `;
+    // Seed a save so Continue is enabled and load returns a real state.
+    GameState.save(GameState.createInitial(), 'current');
+    App.init(); // reads the save (enables Continue) and wires the click handler
+
+    // Install the spy AFTER init so init's own load call isn't counted.
+    const originalLoad = GameState.load;
+    let loadCalls = 0;
+    GameState.load = function (slot) { loadCalls++; return originalLoad(slot); };
+
+    try {
+      document.getElementById('btn-continue').click();
+      TestRunner.assert(loadCalls > 0,
+        'the Continue click reached GameState.load (the state engine)');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'Continue routed to the game screen');
+    } finally {
+      GameState.load = originalLoad;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Screen-router navigation (btn-new-game / btn-title-return) ──────────────
+  // NOTE: these router buttons call App.showScreen (app-internal), not an
+  // engine module, so there is no engine call to spy on — the wiring is
+  // verified via the resulting active screen. (btn-continue, above, is the
+  // engine-backed router path, reaching GameState.load.)
+  TestRunner.test('clicking New Game routes to Setup; Return routes back to Title', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen">
+        <button id="btn-new-game">New Game</button>
+      </div>
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen"></div>
+      <div data-screen="victory" class="screen">
+        <button id="btn-title-return">Return to Title</button>
+      </div>
+    `;
+    App.init(); // wires the screen-router navigation buttons
+
+    document.getElementById('btn-new-game').click();
+    TestRunner.assertEqual(App.currentScreen(), 'setup',
+      'New Game navigates the router to the Setup screen');
+
+    document.getElementById('btn-title-return').click();
+    TestRunner.assertEqual(App.currentScreen(), 'title',
+      'Return navigates the router back to the Title screen');
+  });
+
+  // ── Input-mode toggle → Dice engine (via Begin → syncInputProviders) ───────
+  // The Setup input-mode selects have no handler of their own; their values are
+  // read by beginGame, which calls syncInputProviders → Dice.setProvider. This
+  // proves the physical toggle actually re-wires the Dice engine to the manual
+  // provider (a real effect), not just that a value was captured.
+  TestRunner.test('the Setup dice Input-Mode toggle wires the physical provider into the Dice engine on Begin', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <button id="btn-begin">Begin</button>
+        <select id="input-mode-dice"><option value="digital">Digital</option><option value="physical">Physical</option></select>
+        <select id="input-mode-cards"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    document.getElementById('input-mode-dice').value = 'physical';
+    App.init();
+
+    const originalDiceInput = UI.diceInput;
+    let providerCalled = false;
+    UI.diceInput = function () { providerCalled = true; return Promise.resolve(4); };
+
+    try {
+      document.getElementById('btn-begin').click();
+      TestRunner.assertEqual(App.getState().inputMode.dice, 'physical',
+        'the dice Input-Mode toggle was read into state on Begin');
+      await Dice.roll('d6');
+      TestRunner.assert(providerCalled,
+        'Begin wired the physical provider into the Dice engine (syncInputProviders → Dice.setProvider)');
+    } finally {
+      UI.diceInput = originalDiceInput;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+});
