@@ -1,6 +1,55 @@
 /**
- * Tests for app.js — screen router.
+ * Tests for app.js — screen router, setup, recruitment pipeline, and DOM wiring.
  */
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Set up minimal DOM elements that renderGameState / renderPersonnel require.
+ * Guards against throws during state mutation tests.
+ */
+function setupGameDOM() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.innerHTML = `
+    <div data-screen="title"></div>
+    <div data-screen="game">
+      <span id="val-influence"></span>
+      <span id="val-heat"></span>
+      <span id="val-supplies"></span>
+      <span id="val-turn"></span>
+      <span id="val-leader"></span>
+      <div id="section-recruit-pool"><div class="card-list"></div></div>
+      <div id="section-initiates"><div class="card-list"></div></div>
+      <div id="section-operatives"><div class="card-list"></div></div>
+      <div id="section-detained"><div class="card-list"></div></div>
+      <div id="turn-log"></div>
+    </div>
+  `;
+}
+
+/**
+ * Bootstrap a game state via App.continueGame() and return the live
+ * state reference so tests can mutate it before calling App methods.
+ *
+ * @param {object} [overrides] - Key/value pairs merged onto the initial state.
+ * @returns {object} Live game state reference used by App internally.
+ */
+function bootTestGame(overrides) {
+  // Do NOT call localStorage.clear() here.
+  // In the Node runner, localStorage is already an isolated happy-dom mock.
+  // In the browser runner, clear() would wipe real game saves.
+  // GameState.save() below overwrites only the slot under test.
+  setupGameDOM();
+  const state = GameState.createInitial();
+  state.recruitDeck = Deck.createDeck();
+  Deck.shuffle(state.recruitDeck);
+  if (overrides) Object.assign(state, overrides);
+  GameState.save(state, 'current');
+  App.continueGame();
+  return App.getState();
+}
+
 TestRunner.describe('app.js — Screen Router', function () {
 
   // Helper to set up screen containers in the DOM
@@ -532,6 +581,90 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
     } finally {
       UI.assignOperatives = originalAssign;
       Operations.resolveMinorVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', function () {
+
+  TestRunner.test('after the Leader executes Minor Vandalism, the Leader is absent from the next Operation picker until End Turn', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.init();      // wires the #btn-end-turn handler (fine if absent in this DOM)
+    App.beginGame();
+    // A recruited operative so Minor Vandalism (K=1) stays available after the
+    // Leader taps — otherwise the pool empties and there's no "next" op to pick.
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(opA);
+    App.getState().heat = 90; // force failures so nothing detains/changes the pool
+    App.renderGameState();
+
+    const originalAssign = UI.assignOperatives;
+    let offered = null;
+    try {
+      // First execution: the Leader acts and should tap.
+      UI.assignOperatives = async function (count, available) {
+        return available.filter((o) => o.isLeader).slice(0, count);
+      };
+      Dice.setProvider(() => Promise.resolve(99));
+      document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
+      await new Promise((r) => setTimeout(r, 0));
+
+      TestRunner.assert(App.getState().leader.tapped, 'the Leader tapped after acting');
+
+      // Second execution: the picker must NOT be offered the tapped Leader.
+      UI.assignOperatives = async function (count, available) {
+        offered = available;
+        return available.slice(0, count);
+      };
+      document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
+      await new Promise((r) => setTimeout(r, 0));
+
+      TestRunner.assert(offered, 'the second Operation showed an assignment picker');
+      TestRunner.assert(!offered.some((o) => o.isLeader),
+        'the tapped Leader is excluded from the next picker');
+      TestRunner.assert(offered.includes(opA),
+        'the untapped operative is still offered');
+
+      // End Turn untaps the Leader so it is assignable again next turn.
+      await App.endTurn();
+      TestRunner.assert(!App.getState().leader.tapped, 'End Turn untapped the Leader');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('tapped units render visually distinct (tapped CSS class) in the Operatives panel', function () {
+    const state = bootTestGame();
+    const opA = { suit: 'spades', rank: 'A', value: 14 };            // untapped
+    const opB = { suit: 'clubs', rank: 'K', value: 13, tapped: true }; // tapped
+    state.operatives.push(opA, opB);
+    state.leader.tapped = true;
+    App.renderGameState();
+
+    try {
+      const panel = document.querySelector('#section-operatives .card-list');
+      const leaderCard = panel.querySelector('.card-leader');
+      TestRunner.assert(leaderCard.classList.contains('tapped'),
+        'the tapped Leader card carries the tapped class');
+
+      const cards = Array.from(panel.querySelectorAll('.card:not(.card-leader)'));
+      const tappedCards = cards.filter((c) => c.classList.contains('tapped'));
+      TestRunner.assertEqual(tappedCards.length, 1, 'exactly one operative card is marked tapped');
+      TestRunner.assert(/K/.test(tappedCards[0].textContent),
+        'the tapped operative (K of clubs) is the one marked, not the untapped Ace');
+    } finally {
       GameState.deleteSave('current');
     }
   });
@@ -1556,6 +1689,617 @@ TestRunner.describe('app.js — Turn history log panel (#15)', function () {
     TestRunner.assert(/T2/.test(entries[2].textContent), 'later entry tagged with its turn (T2)');
 
     GameState.deleteSave('current');
+  });
+
+});
+
+// ─── Influence Die Tiers ──────────────────────────────────────────────────────
+
+TestRunner.describe('app.js — Influence Die Tiers', function () {
+
+  TestRunner.test('returns null when influence is 0', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(0), null);
+  });
+
+  TestRunner.test('returns null when influence is below 50', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(49), null);
+  });
+
+  TestRunner.test('returns d4 at exactly 50 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(50), 'd4');
+  });
+
+  TestRunner.test('returns d4 up to 99 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(99), 'd4');
+  });
+
+  TestRunner.test('returns d6 at 100 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(100), 'd6');
+  });
+
+  TestRunner.test('returns d8 at 150 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(150), 'd8');
+  });
+
+  TestRunner.test('returns d10 at 200 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(200), 'd10');
+  });
+
+  TestRunner.test('returns d12 at 250 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(250), 'd12');
+  });
+
+  TestRunner.test('returns d20 at exactly 300 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(300), 'd20');
+  });
+
+  TestRunner.test('returns d20 above 300 influence', function () {
+    TestRunner.assertEqual(App.getInfluenceDie(500), 'd20');
+  });
+
+});
+
+// ─── Leader Skill Level ───────────────────────────────────────────────────────
+
+TestRunner.describe('app.js — Leader Skill Level', function () {
+
+  TestRunner.test('updateLeaderSkill sets to max operative card value', function () {
+    const state = bootTestGame();
+    state.operatives = [
+      { suit: 'hearts',   rank: '5', value: 5  },
+      { suit: 'spades',   rank: 'K', value: 13 },
+      { suit: 'diamonds', rank: '8', value: 8  },
+    ];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 13);
+  });
+
+  TestRunner.test('updateLeaderSkill reflects the single operative when only one exists', function () {
+    const state = bootTestGame();
+    state.operatives = [{ suit: 'clubs', rank: 'J', value: 11 }];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 11);
+  });
+
+  TestRunner.test('updateLeaderSkill stays at 0 with no operatives and no prior high-water mark', function () {
+    const state = bootTestGame();
+    state.operatives = [];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 0);
+  });
+
+  TestRunner.test('updateLeaderSkill retains prior high-water mark when operatives drop to zero', function () {
+    const state = bootTestGame();
+    state.operatives = [{ suit: 'spades', rank: 'K', value: 13 }];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 13);
+
+    // All operatives lost/detained/captured
+    state.operatives = [];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 13, 'ratchet: must not reset to 0');
+  });
+
+  TestRunner.test('updateLeaderSkill leaves leaderSkillLevel unchanged after losing the highest-value operative', function () {
+    const state = bootTestGame();
+    state.operatives = [
+      { suit: 'hearts', rank: 'A', value: 15 },
+      { suit: 'clubs',  rank: '9', value: 9  },
+    ];
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 15);
+
+    // Remove the highest-value operative (e.g. lost, detained, or captured)
+    state.operatives.splice(0, 1);
+    App.updateLeaderSkill();
+    TestRunner.assertEqual(App.getState().leaderSkillLevel, 15, 'ratchet: level must not drop');
+  });
+
+});
+
+// ─── Recruitment Pipeline ─────────────────────────────────────────────────────
+
+TestRunner.describe('app.js — Recruitment Pipeline', function () {
+
+  // ── Helper: pick a base die from the recruitDieChoice modal ────────────────
+  function chooseBaseDie(die) {
+    const overlay = document.querySelector('.modal-overlay');
+    overlay.querySelector(`button[data-choice="${die}"]`).click();
+  }
+
+  // ── Integration test #15 (TDD doc) ──────────────────────────────────────────
+  // SPEC: Successful recruit attempt moves card from pool → initiates (2-turn timer).
+  // This test uses a state with a high leaderSkillLevel to bypass the known
+  // leader-block bug so it can test the state-transition path.
+  TestRunner.test('successful recruit moves card from pool to initiates with 2-turn timer', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 5 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+    state.operatives  = [{ suit: 'hearts', rank: '5', value: 5 }];
+
+    // d10 rolls 7 (>= card value 3 → success under either the correct or
+    // current buggy formula when leaderSkillLevel = 5)
+    Dice.setProvider(() => Promise.resolve(7));
+    // The value-5 operative outranks the value-3 target, so the Leader and it
+    // are both eligible (#49) — auto-pick the Leader so the die-choice modal
+    // is the one on screen for chooseBaseDie.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
+    const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 0, 'pool should be empty after success');
+    TestRunner.assertEqual(appState.initiates.length, 1, 'initiates should have 1 entry');
+    TestRunner.assertEqual(appState.initiates[0].card.rank, '3', 'correct card in initiates');
+    TestRunner.assertEqual(appState.initiates[0].turnsRemaining, 2, 'timer should be 2 turns');
+  });
+
+  TestRunner.test('failed recruit attempt leaves card in recruit pool', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 5 });
+    const target = { suit: 'diamonds', rank: 'A', value: 15 };
+    state.recruitPool = [target];
+    state.operatives  = [{ suit: 'spades', rank: '5', value: 5 }];
+
+    // d10 rolls 2; even with buggy leaderSkillLevel addition (2+5=7) that is
+    // still < 15, so both correct and buggy logic should produce a failure
+    Dice.setProvider(() => Promise.resolve(2));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 1, 'card should remain in pool after failure');
+    TestRunner.assertEqual(appState.initiates.length, 0, 'no card should be added to initiates');
+  });
+
+  // ── Tapping (#52) ───────────────────────────────────────────────────────────
+  TestRunner.test('recruit attempt taps the chosen attributer, excluding it from further actions that turn', async function () {
+    const state = bootTestGame();
+    state.operatives = [];               // only the Leader is eligible
+    state.leaderSkillLevel = 0;
+    const target = { suit: 'hearts', rank: '4', value: 4 };
+    state.recruitPool = [target];
+
+    const originalDie = UI.recruitDieChoice;
+    UI.recruitDieChoice = async () => 'd10';
+    Dice.setProvider(() => Promise.resolve(9)); // 9 >= 4 → success (irrelevant to tap)
+    try {
+      await App.attemptRecruit(0);
+      TestRunner.assert(App.getState().leader.tapped, 'the Leader attributer tapped after the Recruit Attempt');
+      TestRunner.assert(!GameState.untappedPool(App.getState()).some((u) => u.isLeader),
+        'the tapped Leader is excluded from the assignable pool');
+    } finally {
+      UI.recruitDieChoice = originalDie;
+      Dice.setProvider(null);
+    }
+  });
+
+  TestRunner.test('recruit attempt excludes an already-tapped Operative from attributer eligibility', async function () {
+    const state = bootTestGame();
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+    // A high-value operative that would normally be an eligible attributer, but
+    // it has already acted this turn (tapped) so only the Leader should qualify.
+    const spent = { suit: 'spades', rank: 'K', value: 13, tapped: true };
+    state.operatives = [spent];
+
+    let offered = null;
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible[0]; };
+    UI.recruitDieChoice = async () => 'd10';
+    Dice.setProvider(() => Promise.resolve(9));
+    try {
+      await App.attemptRecruit(0);
+      TestRunner.assert(offered === null,
+        'the tapped high-value Operative was not in the eligible set, so no attributer picker was shown');
+    } finally {
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      Dice.setProvider(null);
+    }
+  });
+
+  // ── FAILING TEST (expected) — documents known bug #1 ────────────────────────
+  // SPEC: The leader can always attempt recruitment, even when there are no
+  // operatives and leaderSkillLevel is 0.
+  // BUG: Current code blocks the attempt when operatives.length === 0 &&
+  //      leaderSkillLevel === 0, preventing the leader from ever getting started.
+  TestRunner.test('[spec] leader can attempt recruitment with no operatives', async function () {
+    const state = bootTestGame();
+    // Explicitly start with no operatives and leaderSkillLevel = 0
+    state.operatives       = [];
+    state.leaderSkillLevel = 0;
+    const target = { suit: 'hearts', rank: '4', value: 4 };
+    state.recruitPool = [target];
+
+    // Roll 10 on d10 — should succeed (10 >= 4) if the attempt is allowed
+    Dice.setProvider(() => Promise.resolve(10));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 0,
+      'card should move out of pool — leader can always recruit');
+    TestRunner.assertEqual(appState.initiates.length, 1,
+      'card should become an initiate');
+  });
+
+  // ── FAILING TEST (expected) — documents known bug #2 ────────────────────────
+  // SPEC: The dice roll alone (d10 + optional influence die) is compared to the
+  // card value. The recruiting operative's skill level is NOT added to the roll;
+  // it only determines whether an attempt is permitted.
+  // BUG: Current code adds leaderSkillLevel to the roll total, inflating results.
+  TestRunner.test('[spec] recruit success is determined by dice roll alone, not roll + skill', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 10 });
+    // Card value 8. With correct formula: roll must be >= 8.
+    // With buggy formula: roll + leaderSkillLevel (10) >= 8 — always passes.
+    const target = { suit: 'spades', rank: '8', value: 8 };
+    state.recruitPool = [target];
+    state.operatives  = [{ suit: 'clubs', rank: '10', value: 10 }];
+
+    // Roll 5 on d10 — correct: 5 < 8 → FAIL; buggy: 5+10=15 >= 8 → SUCCESS
+    Dice.setProvider(() => Promise.resolve(5));
+    // The value-10 operative outranks the value-8 target, so both it and the
+    // Leader are eligible (#49) — auto-pick so the die-choice modal shows.
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => eligible[0];
+    const promise = App.attemptRecruit(0);
+    // Let the attributer-picker stub resolve so the die-choice modal mounts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 1,
+      'card should stay in pool — roll of 5 is below card value 8');
+    TestRunner.assertEqual(appState.initiates.length, 0,
+      'no card should be added to initiates on a failed roll');
+  });
+
+  // ── Base die: d10 vs d12 (Supply-spend) ─────────────────────────────────────
+
+  TestRunner.test('choosing d12 spends 1 Supply and rolls a d12', async function () {
+    const state = bootTestGame({ supplies: 5 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    let rolledDie = null;
+    Dice.setProvider((dieType) => {
+      rolledDie = dieType;
+      return Promise.resolve(7);
+    });
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d12');
+    await promise;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(rolledDie, 'd12', 'base die should be d12');
+    TestRunner.assertEqual(App.getState().supplies, 4, 'spending d12 costs 1 Supply');
+  });
+
+  TestRunner.test('choosing d10 does not spend a Supply', async function () {
+    const state = bootTestGame({ supplies: 5 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    Dice.setProvider(() => Promise.resolve(7));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(App.getState().supplies, 5, 'choosing d10 spends no Supply');
+  });
+
+  TestRunner.test('d12 choice is disabled when the player has no Supplies', async function () {
+    const state = bootTestGame({ supplies: 0 });
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+
+    Dice.setProvider(() => Promise.resolve(7));
+    const promise = App.attemptRecruit(0);
+    const overlay = document.querySelector('.modal-overlay');
+    const d12Button = overlay.querySelector('button[data-choice="d12"]');
+    TestRunner.assert(d12Button.disabled, 'd12 option should be disabled with 0 Supplies');
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+  });
+
+  // ── Eligibility (issue #12, bullet 4) ───────────────────────────────────────
+  // SPEC: The Leader can always attempt Recruitment (CONTEXT.md), regardless of
+  // leaderSkillLevel or the value of any current Operatives. This flow has no
+  // per-Operative attempter selection, so a low-value roster never blocks the
+  // attempt — only the dice roll vs. the card's value determines success.
+  TestRunner.test('[spec] recruit attempt is never blocked by low-value Operatives or Leader skill', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    const target = { suit: 'hearts', rank: '10', value: 10 };
+    state.recruitPool = [target];
+    state.operatives  = [{ suit: 'clubs', rank: '2', value: 2 }];
+
+    Dice.setProvider(() => Promise.resolve(10));
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10');
+    await promise;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.recruitPool.length, 0,
+      'attempt should proceed and succeed despite leaderSkillLevel=0 and a low-value Operative');
+    TestRunner.assertEqual(appState.initiates.length, 1);
+  });
+
+  // ── Attributer eligibility + selection (#49) ────────────────────────────────
+  // SPEC: The set of units that may perform a Recruit Attempt is the Leader
+  // (always) plus every non-Leader Operative whose value strictly exceeds the
+  // target Recruit's value. When only one qualifies (the Leader alone) no
+  // picker is shown; when more than one qualifies the player chooses.
+
+  TestRunner.test('[spec #49] Leader is always eligible — a high-value Ace with no qualifying operatives shows no picker and records the Leader', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    // Ace (value 15). The K operative (13) does NOT outrank it, so only the
+    // Leader is eligible.
+    state.recruitPool = [{ suit: 'diamonds', rank: 'A', value: 15 }];
+    state.operatives  = [{ suit: 'clubs', rank: 'K', value: 13 }];
+
+    let pickerCalls = 0;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { pickerCalls++; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(3)); // roll math unchanged; outcome irrelevant here
+    const promise = App.attemptRecruit(0);
+    chooseBaseDie('d10'); // single eligible → die modal is on screen synchronously
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(pickerCalls, 0,
+      'no attributer picker is shown when only the Leader qualifies (even vs an Ace)');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/Leader/.test(log), 'the log records the Leader as the attributer');
+  });
+
+  TestRunner.test('[spec #49] only Operatives with value > target join the Leader as eligible attributers', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '9', value: 9 }];
+    state.operatives  = [
+      { suit: 'clubs',  rank: '8', value: 8  }, // 8 <= 9 → NOT eligible
+      { suit: 'spades', rank: 'K', value: 13 }, // 13 > 9 → eligible
+    ];
+
+    let offered = null;
+    const originalAttributer = UI.recruitAttributerChoice;
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible[0]; };
+
+    Dice.setProvider(() => Promise.resolve(2));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the picker stub resolve
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    TestRunner.assert(offered, 'a picker is offered when more than one unit qualifies');
+    TestRunner.assertEqual(offered.length, 2, 'exactly the Leader plus the one higher-value operative');
+    TestRunner.assert(offered.some((u) => u.isLeader), 'the Leader is always among the eligible');
+    TestRunner.assert(offered.some((u) => u.rank === 'K'), 'the value-13 operative is eligible (> 9)');
+    TestRunner.assert(!offered.some((u) => u.rank === '8'), 'the value-8 operative is NOT eligible (<= 9)');
+  });
+
+  TestRunner.test('[spec #49] the chosen attributer is recorded in the turn log; roll math unchanged', async function () {
+    const state = bootTestGame({ leaderSkillLevel: 0 });
+    state.recruitPool = [{ suit: 'hearts', rank: '5', value: 5 }];
+    state.operatives  = [{ suit: 'spades', rank: 'K', value: 13 }]; // eligible (13 > 5)
+
+    const originalAttributer = UI.recruitAttributerChoice;
+    // Player picks the operative, not the Leader.
+    UI.recruitAttributerChoice = async (eligible) => eligible.find((u) => !u.isLeader);
+
+    // Roll 9 on d10 → 9 >= 5 → success (skill is NOT added to the roll).
+    Dice.setProvider(() => Promise.resolve(9));
+    const promise = App.attemptRecruit(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    chooseBaseDie('d10');
+    await promise;
+    UI.recruitAttributerChoice = originalAttributer;
+    Dice.setProvider(null);
+
+    const appState = App.getState();
+    TestRunner.assertEqual(appState.initiates.length, 1, 'success promotes the card pool → Initiate');
+    TestRunner.assertEqual(appState.recruitPool.length, 0, 'the card leaves the pool on success');
+    TestRunner.assertEqual(appState.initiates[0].turnsRemaining, 2, 'Initiate carries the 2-turn timer');
+    const log = document.getElementById('turn-log').textContent;
+    TestRunner.assert(/K♠/.test(log), 'the chosen operative (K♠) is recorded as the attributer');
+  });
+
+});
+
+TestRunner.describe('app.js — Backfill DOM-wiring tests (#10)', function () {
+
+  // ADR-0002: every button whose handler calls into an engine module gets a
+  // wiring test asserting the CLICK actually reaches that engine call, so a
+  // disconnected/misrouted handler is caught. Each test below stubs the exact
+  // engine method (or drives a real engine effect) and asserts the click hits
+  // it — meaning it would fail if the handler's engine call were removed.
+
+  // ── Recruit button → Dice engine (Dice.roll) ───────────────────────────────
+  // The existing #49 tests assert the Recruit click's *outcome* via a Dice
+  // provider; this one pins the wiring directly to the Dice.roll engine method.
+  TestRunner.test('clicking a Recruit button reaches the Dice engine (Dice.roll)', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+    const state = App.getState();
+    // Only the Leader is eligible (no Operatives), so no attributer picker fires.
+    state.recruitPool = [{ suit: 'hearts', rank: '4', value: 4 }];
+    state.operatives = [];
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for the pooled card');
+
+    const originalDie = UI.recruitDieChoice;
+    const originalRoll = Dice.roll;
+    UI.recruitDieChoice = async () => 'd10';
+    let rollCalls = 0;
+    Dice.roll = async function () { rollCalls++; return 10; };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      TestRunner.assert(rollCalls > 0,
+        'the Recruit click reached Dice.roll (the dice engine)');
+    } finally {
+      UI.recruitDieChoice = originalDie;
+      Dice.roll = originalRoll;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Begin button → Deck engine (Deck.shuffle) ──────────────────────────────
+  TestRunner.test('clicking Begin reaches the Deck engine (Deck.shuffle) and starts a game', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <button id="btn-begin">Begin</button>
+        <select id="input-mode-dice"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+        <select id="input-mode-cards"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    App.init(); // wires the #btn-begin click handler
+
+    const originalShuffle = Deck.shuffle;
+    let shuffleCalls = 0;
+    Deck.shuffle = function (deck) { shuffleCalls++; return originalShuffle(deck); };
+
+    try {
+      document.getElementById('btn-begin').click();
+      TestRunner.assert(shuffleCalls > 0,
+        'the Begin click reached Deck.shuffle (the deck engine)');
+      TestRunner.assert(App.getState() !== null, 'Begin created a game state');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'Begin routed to the game screen');
+    } finally {
+      Deck.shuffle = originalShuffle;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Continue button → state engine (GameState.load) ────────────────────────
+  TestRunner.test('clicking Continue reaches the state engine (GameState.load)', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen">
+        <button id="btn-continue">Continue</button>
+      </div>
+      <div data-screen="game" class="screen">
+        <span id="val-influence"></span>
+      </div>
+    `;
+    // Seed a save so Continue is enabled and load returns a real state.
+    GameState.save(GameState.createInitial(), 'current');
+    App.init(); // reads the save (enables Continue) and wires the click handler
+
+    // Install the spy AFTER init so init's own load call isn't counted.
+    const originalLoad = GameState.load;
+    let loadCalls = 0;
+    GameState.load = function (slot) { loadCalls++; return originalLoad(slot); };
+
+    try {
+      document.getElementById('btn-continue').click();
+      TestRunner.assert(loadCalls > 0,
+        'the Continue click reached GameState.load (the state engine)');
+      TestRunner.assertEqual(App.currentScreen(), 'game', 'Continue routed to the game screen');
+    } finally {
+      GameState.load = originalLoad;
+      GameState.deleteSave('current');
+    }
+  });
+
+  // ── Screen-router navigation (btn-new-game / btn-title-return) ──────────────
+  // NOTE: these router buttons call App.showScreen (app-internal), not an
+  // engine module, so there is no engine call to spy on — the wiring is
+  // verified via the resulting active screen. (btn-continue, above, is the
+  // engine-backed router path, reaching GameState.load.)
+  TestRunner.test('clicking New Game routes to Setup; Return routes back to Title', function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="title" class="screen">
+        <button id="btn-new-game">New Game</button>
+      </div>
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen"></div>
+      <div data-screen="victory" class="screen">
+        <button id="btn-title-return">Return to Title</button>
+      </div>
+    `;
+    App.init(); // wires the screen-router navigation buttons
+
+    document.getElementById('btn-new-game').click();
+    TestRunner.assertEqual(App.currentScreen(), 'setup',
+      'New Game navigates the router to the Setup screen');
+
+    document.getElementById('btn-title-return').click();
+    TestRunner.assertEqual(App.currentScreen(), 'title',
+      'Return navigates the router back to the Title screen');
+  });
+
+  // ── Input-mode toggle → Dice engine (via Begin → syncInputProviders) ───────
+  // The Setup input-mode selects have no handler of their own; their values are
+  // read by beginGame, which calls syncInputProviders → Dice.setProvider. This
+  // proves the physical toggle actually re-wires the Dice engine to the manual
+  // provider (a real effect), not just that a value was captured.
+  TestRunner.test('the Setup dice Input-Mode toggle wires the physical provider into the Dice engine on Begin', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen">
+        <button id="btn-begin">Begin</button>
+        <select id="input-mode-dice"><option value="digital">Digital</option><option value="physical">Physical</option></select>
+        <select id="input-mode-cards"><option value="digital" selected>Digital</option><option value="physical">Physical</option></select>
+      </div>
+      <div data-screen="game" class="screen"></div>
+    `;
+    document.getElementById('input-mode-dice').value = 'physical';
+    App.init();
+
+    const originalDiceInput = UI.diceInput;
+    let providerCalled = false;
+    UI.diceInput = function () { providerCalled = true; return Promise.resolve(4); };
+
+    try {
+      document.getElementById('btn-begin').click();
+      TestRunner.assertEqual(App.getState().inputMode.dice, 'physical',
+        'the dice Input-Mode toggle was read into state on Begin');
+      await Dice.roll('d6');
+      TestRunner.assert(providerCalled,
+        'Begin wired the physical provider into the Dice engine (syncInputProviders → Dice.setProvider)');
+    } finally {
+      UI.diceInput = originalDiceInput;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
   });
 
 });

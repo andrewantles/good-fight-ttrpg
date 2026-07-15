@@ -84,6 +84,21 @@ const GameState = (() => {
   }
 
   /**
+   * The subset of the assignable pool that has NOT yet acted this turn (#52).
+   * Tapping models the per-turn action economy: a unit taps when it executes an
+   * Operation or performs a Recruit Attempt, spending its single action for the
+   * turn. This accessor filters tapped units out so Operation availability,
+   * assignment pickers, and Recruit-attributer eligibility all skip them. The
+   * full assignablePool is still used to RENDER the Operatives panel (tapped
+   * units stay visible, just marked); untapping happens in bulk at end of turn.
+   * @param {object} state
+   * @returns {Array} assignable units with a falsy `tapped` flag
+   */
+  function untappedPool(state) {
+    return assignablePool(state).filter((unit) => !unit.tapped);
+  }
+
+  /**
    * Update the Leader's skill level — a monotonic high-water mark equal to the
    * highest value among current Operatives (per the rulebook: "counting
    * yourself as an Operative with skill level matching your highest Operative
@@ -166,6 +181,7 @@ const GameState = (() => {
   return {
     createInitial,
     assignablePool,
+    untappedPool,
     updateLeaderSkill,
     setInfluence,
     setHeat,

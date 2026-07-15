@@ -50,6 +50,12 @@ loadScript('../js/app.js');
 loadScript('../js/operations.js');
 loadScript('../js/turn.js');
 loadScript('../js/crackdown.js');
+loadScript('../js/simulation/simulator.js');
+loadScript('../js/simulation/strategies.js');
+loadScript('../js/simulation/metrics.js');
+loadScript('../js/simulation/batch.js');
+loadScript('../js/simulation/dashboard.js');
+loadScript('../js/simulation/export.js');
 
 // --- Load test runner and test files ---
 loadScript('test-runner.js');
@@ -61,6 +67,12 @@ loadScript('test-app.js');
 loadScript('test-operations.js');
 loadScript('test-turn.js');
 loadScript('test-crackdown.js');
+loadScript('test-simulator.js');
+loadScript('test-strategies.js');
+loadScript('test-metrics.js');
+loadScript('test-batch.js');
+loadScript('test-dashboard.js');
+loadScript('test-export.js');
 
 // --- Run tests and print results ---
 async function main() {
