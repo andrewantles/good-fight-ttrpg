@@ -375,9 +375,11 @@ const App = (() => {
     const container = document.getElementById('operations-list');
     if (!container || !gameState) return;
 
-    // Availability is checked against the assignable pool (Leader + Operatives)
-    // so the Leader can bootstrap K=1 Operations on a fresh game.
-    const pool = GameState.assignablePool(gameState);
+    // Availability is checked against the UNTAPPED pool (Leader + Operatives
+    // that have not yet acted this turn, #52) so the Leader can bootstrap K=1
+    // Operations on a fresh game, but units already spent this turn no longer
+    // light up Operations they can't actually crew.
+    const pool = GameState.untappedPool(gameState);
 
     const buttons = [];
     if (Operations.canExecute('minor_vandalism', gameState, pool)) {
@@ -455,8 +457,9 @@ const App = (() => {
   async function executeMinorVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
+    const operatives = await UI.assignOperatives(1, GameState.untappedPool(gameState));
     if (!operatives || operatives.length !== 1) return;
+    tapUnits(operatives);
 
     const result = await Operations.resolveMinorVandalism(gameState, operatives);
 
@@ -479,8 +482,9 @@ const App = (() => {
   async function executeAverageVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(2, GameState.assignablePool(gameState));
+    const operatives = await UI.assignOperatives(2, GameState.untappedPool(gameState));
     if (!operatives || operatives.length !== 2) return;
+    tapUnits(operatives);
 
     const result = await Operations.resolveAverageVandalism(gameState, operatives);
 
@@ -513,8 +517,9 @@ const App = (() => {
   async function executeSignificantVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
+    const operatives = await UI.assignOperatives(4, GameState.untappedPool(gameState));
     if (!operatives || operatives.length !== 4) return;
+    tapUnits(operatives);
 
     let secondPenaltyChoice = null;
     const result = await Operations.resolveSignificantVandalism(gameState, operatives, {
@@ -549,8 +554,9 @@ const App = (() => {
   async function executeGatherSupplies() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, GameState.assignablePool(gameState));
+    const operatives = await UI.assignOperatives(1, GameState.untappedPool(gameState));
     if (!operatives || operatives.length !== 1) return;
+    tapUnits(operatives);
 
     const result = await Operations.resolveGatherSupplies(gameState, operatives);
 
@@ -575,8 +581,9 @@ const App = (() => {
   async function executeScout() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(4, GameState.assignablePool(gameState));
+    const operatives = await UI.assignOperatives(4, GameState.untappedPool(gameState));
     if (!operatives || operatives.length !== 4) return;
+    tapUnits(operatives);
 
     Operations.startScout(gameState, operatives);
 
@@ -651,12 +658,15 @@ const App = (() => {
     const suitColors = { hearts: 'red', diamonds: 'red', clubs: 'dark', spades: 'dark', joker: 'leader' };
     const icon = suitIcons[card.suit] || '?';
     const colorClass = 'suit-' + (suitColors[card.suit] || 'dark');
+    // A unit that has acted this turn (#52) carries the `tapped` class so the
+    // Operatives panel renders it visually distinct (dimmed / rotated via CSS).
+    const tappedClass = card.tapped ? ' tapped' : '';
     // The Leader is a Joker rendered as a distinct card ("Leader / You"),
     // never a bare rank/suit \u2014 and never carries Recruit/detain controls.
     if (card.isLeader) {
-      return `<span class="card card-leader ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">Leader (You)</span></span>`;
+      return `<span class="card card-leader ${colorClass}${tappedClass}"><span class="card-suit">${icon}</span><span class="card-rank">Leader (You)</span></span>`;
     }
-    return `<span class="card ${colorClass}"><span class="card-suit">${icon}</span><span class="card-rank">${card.rank}</span><span class="card-value">(${card.value})</span></span>`;
+    return `<span class="card ${colorClass}${tappedClass}"><span class="card-suit">${icon}</span><span class="card-rank">${card.rank}</span><span class="card-value">(${card.value})</span></span>`;
   }
 
   /**
@@ -687,13 +697,21 @@ const App = (() => {
     // target's value. A non-Leader Operative qualifies only if its value is
     // strictly greater than the target Recruit's value. The Leader guarantees
     // ≥1 eligible unit, so we prompt only when more than one qualifies.
-    const eligible = (gameState.leader ? [gameState.leader] : [])
-      .concat(gameState.operatives.filter((op) => op.value > card.value));
+    // Tapped units (#52) have already spent their action this turn, so they are
+    // excluded from the eligible set — both the Leader (if tapped) and any
+    // higher-value Operative that has already acted.
+    const eligible = (gameState.leader && !gameState.leader.tapped ? [gameState.leader] : [])
+      .concat(gameState.operatives.filter((op) => !op.tapped && op.value > card.value));
+    if (eligible.length === 0) return; // every eligible attributer has already acted
     let attributer = eligible[0];
     if (eligible.length > 1) {
       attributer = await UI.recruitAttributerChoice(eligible);
       if (!attributer) return; // player dismissed the picker without choosing
     }
+
+    // Performing the Recruit Attempt spends the attributer's action for the turn
+    // (#52), so it taps and drops out of the assignable / eligible pools.
+    tapUnits([attributer]);
 
     // Base die: d10, or d12 if the player spends 1 Supply.
     const canAffordSupply = gameState.supplies >= 1;
@@ -735,6 +753,17 @@ const App = (() => {
   function suitSymbol(suit) {
     const icons = { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' };
     return icons[suit] || '';
+  }
+
+  /**
+   * Tap a set of units (#52): mark each as having spent its one action for the
+   * turn. Tapped units are filtered out of GameState.untappedPool, so they no
+   * longer appear in Operation availability, assignment pickers, or the
+   * Recruit-attributer eligibility set until End Turn untaps them. Mutates the
+   * unit objects in place (they are the live Leader / Operative references).
+   */
+  function tapUnits(units) {
+    (units || []).forEach((unit) => { if (unit) unit.tapped = true; });
   }
 
   /**

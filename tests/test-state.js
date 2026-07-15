@@ -97,6 +97,35 @@ TestRunner.describe('state.js — Game State Management', () => {
     TestRunner.assertEqual(pool[0], op);
   });
 
+  TestRunner.test('save()/load() round-trips the tapped flag (#52) on Leader and Operatives', () => {
+    const state = GameState.createInitial();
+    state.operatives.push({ suit: 'spades', rank: 'A', value: 14, tapped: true });
+    state.operatives.push({ suit: 'clubs', rank: '2', value: 2 }); // untapped
+    state.leader.tapped = true;
+
+    GameState.save(state, 'test-slot-tapped');
+    const loaded = GameState.load('test-slot-tapped');
+
+    TestRunner.assertEqual(loaded.leader.tapped, true, 'Leader tapped flag survives save/load');
+    TestRunner.assertEqual(loaded.operatives[0].tapped, true, 'tapped operative survives');
+    TestRunner.assert(!loaded.operatives[1].tapped, 'untapped operative stays untapped');
+    TestRunner.assertArrayLength(GameState.untappedPool(loaded), 1, 'only the untapped operative is assignable after load');
+
+    GameState.deleteSave('test-slot-tapped');
+  });
+
+  TestRunner.test('untappedPool() excludes tapped units (Leader and Operatives) from the assignable pool', () => {
+    const state = GameState.createInitial();
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    const opB = { suit: 'clubs', rank: 'K', value: 13, tapped: true };
+    state.operatives.push(opA, opB);
+    state.leader.tapped = true;
+
+    const pool = GameState.untappedPool(state);
+    TestRunner.assertArrayLength(pool, 1, 'only the untapped operative remains');
+    TestRunner.assertEqual(pool[0], opA, 'tapped Leader and tapped operative are filtered out');
+  });
+
   TestRunner.test('updateLeaderSkill() raises leaderSkillLevel to the highest operative value', () => {
     const state = GameState.createInitial();
     state.operatives = [

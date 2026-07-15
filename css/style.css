@@ -477,6 +477,14 @@ legend {
 .card-rank { color: var(--text); }
 .card-value { color: var(--text-muted); font-size: 0.8rem; font-weight: normal; }
 
+/* A tapped unit has spent its one action this turn (#52). Rotate + dim it so the
+   player can see at a glance who has already acted; End Turn untaps everyone. */
+.card.tapped {
+  opacity: 0.5;
+  transform: rotate(90deg);
+  transform-origin: center;
+}
+
 .card-row {
   display: flex;
   align-items: center;

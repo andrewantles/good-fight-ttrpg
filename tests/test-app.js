@@ -587,6 +587,90 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
 
 });
 
+TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', function () {
+
+  TestRunner.test('after the Leader executes Minor Vandalism, the Leader is absent from the next Operation picker until End Turn', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.init();      // wires the #btn-end-turn handler (fine if absent in this DOM)
+    App.beginGame();
+    // A recruited operative so Minor Vandalism (K=1) stays available after the
+    // Leader taps — otherwise the pool empties and there's no "next" op to pick.
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    App.getState().operatives.push(opA);
+    App.getState().heat = 90; // force failures so nothing detains/changes the pool
+    App.renderGameState();
+
+    const originalAssign = UI.assignOperatives;
+    let offered = null;
+    try {
+      // First execution: the Leader acts and should tap.
+      UI.assignOperatives = async function (count, available) {
+        return available.filter((o) => o.isLeader).slice(0, count);
+      };
+      Dice.setProvider(() => Promise.resolve(99));
+      document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
+      await new Promise((r) => setTimeout(r, 0));
+
+      TestRunner.assert(App.getState().leader.tapped, 'the Leader tapped after acting');
+
+      // Second execution: the picker must NOT be offered the tapped Leader.
+      UI.assignOperatives = async function (count, available) {
+        offered = available;
+        return available.slice(0, count);
+      };
+      document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
+      await new Promise((r) => setTimeout(r, 0));
+
+      TestRunner.assert(offered, 'the second Operation showed an assignment picker');
+      TestRunner.assert(!offered.some((o) => o.isLeader),
+        'the tapped Leader is excluded from the next picker');
+      TestRunner.assert(offered.includes(opA),
+        'the untapped operative is still offered');
+
+      // End Turn untaps the Leader so it is assignable again next turn.
+      await App.endTurn();
+      TestRunner.assert(!App.getState().leader.tapped, 'End Turn untapped the Leader');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('tapped units render visually distinct (tapped CSS class) in the Operatives panel', function () {
+    const state = bootTestGame();
+    const opA = { suit: 'spades', rank: 'A', value: 14 };            // untapped
+    const opB = { suit: 'clubs', rank: 'K', value: 13, tapped: true }; // tapped
+    state.operatives.push(opA, opB);
+    state.leader.tapped = true;
+    App.renderGameState();
+
+    try {
+      const panel = document.querySelector('#section-operatives .card-list');
+      const leaderCard = panel.querySelector('.card-leader');
+      TestRunner.assert(leaderCard.classList.contains('tapped'),
+        'the tapped Leader card carries the tapped class');
+
+      const cards = Array.from(panel.querySelectorAll('.card:not(.card-leader)'));
+      const tappedCards = cards.filter((c) => c.classList.contains('tapped'));
+      TestRunner.assertEqual(tappedCards.length, 1, 'exactly one operative card is marked tapped');
+      TestRunner.assert(/K/.test(tappedCards[0].textContent),
+        'the tapped operative (K of clubs) is the one marked, not the untapped Ace');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
 TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
 
   TestRunner.test('renders a Gather Supplies button when executable and clicking it reaches resolveGatherSupplies', async function () {
@@ -1773,6 +1857,54 @@ TestRunner.describe('app.js — Recruitment Pipeline', function () {
     const appState = App.getState();
     TestRunner.assertEqual(appState.recruitPool.length, 1, 'card should remain in pool after failure');
     TestRunner.assertEqual(appState.initiates.length, 0, 'no card should be added to initiates');
+  });
+
+  // ── Tapping (#52) ───────────────────────────────────────────────────────────
+  TestRunner.test('recruit attempt taps the chosen attributer, excluding it from further actions that turn', async function () {
+    const state = bootTestGame();
+    state.operatives = [];               // only the Leader is eligible
+    state.leaderSkillLevel = 0;
+    const target = { suit: 'hearts', rank: '4', value: 4 };
+    state.recruitPool = [target];
+
+    const originalDie = UI.recruitDieChoice;
+    UI.recruitDieChoice = async () => 'd10';
+    Dice.setProvider(() => Promise.resolve(9)); // 9 >= 4 → success (irrelevant to tap)
+    try {
+      await App.attemptRecruit(0);
+      TestRunner.assert(App.getState().leader.tapped, 'the Leader attributer tapped after the Recruit Attempt');
+      TestRunner.assert(!GameState.untappedPool(App.getState()).some((u) => u.isLeader),
+        'the tapped Leader is excluded from the assignable pool');
+    } finally {
+      UI.recruitDieChoice = originalDie;
+      Dice.setProvider(null);
+    }
+  });
+
+  TestRunner.test('recruit attempt excludes an already-tapped Operative from attributer eligibility', async function () {
+    const state = bootTestGame();
+    const target = { suit: 'clubs', rank: '3', value: 3 };
+    state.recruitPool = [target];
+    // A high-value operative that would normally be an eligible attributer, but
+    // it has already acted this turn (tapped) so only the Leader should qualify.
+    const spent = { suit: 'spades', rank: 'K', value: 13, tapped: true };
+    state.operatives = [spent];
+
+    let offered = null;
+    const originalAttributer = UI.recruitAttributerChoice;
+    const originalDie = UI.recruitDieChoice;
+    UI.recruitAttributerChoice = async (eligible) => { offered = eligible; return eligible[0]; };
+    UI.recruitDieChoice = async () => 'd10';
+    Dice.setProvider(() => Promise.resolve(9));
+    try {
+      await App.attemptRecruit(0);
+      TestRunner.assert(offered === null,
+        'the tapped high-value Operative was not in the eligible set, so no attributer picker was shown');
+    } finally {
+      UI.recruitAttributerChoice = originalAttributer;
+      UI.recruitDieChoice = originalDie;
+      Dice.setProvider(null);
+    }
   });
 
   // ── FAILING TEST (expected) — documents known bug #1 ────────────────────────

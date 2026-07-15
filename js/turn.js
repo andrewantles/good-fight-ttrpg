@@ -83,6 +83,20 @@ const Turn = (() => {
   }
 
   /**
+   * Untap every assignable unit (#52). Tapping is the per-turn action economy:
+   * a unit taps when it acts, spending its single action for the turn; end of
+   * turn clears the flag so all units are assignable again next turn. Runs last
+   * so that Operatives just returned to the pool this turn — released from
+   * Detainment or handed back by a resolved Multi-turn Op — are untapped too,
+   * rather than lingering tapped from the action that committed them. Guards the
+   * legacy no-leader save.
+   */
+  function untapAll(state) {
+    if (state.leader) state.leader.tapped = false;
+    for (const op of state.operatives) op.tapped = false;
+  }
+
+  /**
    * Run end-of-turn processing. Does NOT run Crackdown or increment the turn
    * counter — those are separate steps (#18, #20).
    *
@@ -98,6 +112,7 @@ const Turn = (() => {
     GameState.updateLeaderSkill(state);
     releaseDetained(state);
     await advanceMultiTurnOps(state, options);
+    untapAll(state);
   }
 
   return {

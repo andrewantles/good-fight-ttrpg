@@ -195,6 +195,19 @@ TestRunner.describe('operations.js — Check Formulas', function () {
     TestRunner.assert(Operations.checkWithOperatives(100, { heat: 50 }, ops));
   });
 
+  TestRunner.test('checkWithOperatives: the tapped flag (#52) does not affect success math', function () {
+    // Same values, only differing in the tapped flag → identical target.
+    const untapped = [{ value: 8 }, { value: 12 }];
+    const tapped   = [{ value: 8, tapped: true }, { value: 12, tapped: true }];
+    TestRunner.assertEqual(
+      Operations.checkWithOperatives(70, { heat: 50 }, tapped),
+      Operations.checkWithOperatives(70, { heat: 50 }, untapped),
+      'tapped operatives contribute their value exactly as untapped ones do'
+    );
+    TestRunner.assert(Operations.checkWithOperatives(70, { heat: 50 }, tapped),
+      'roll 70 still succeeds at target 70 with tapped operatives');
+  });
+
 });
 
 // ─── Suite 6: Operations — Minor Vandalism Resolution ─────────────────────────

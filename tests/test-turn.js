@@ -35,6 +35,36 @@ TestRunner.describe('turn.js — Initiate Timers', function () {
 
 });
 
+TestRunner.describe('turn.js — Untap at end of turn (#52)', function () {
+
+  TestRunner.test('processEndOfTurn untaps every Operative and the Leader', async function () {
+    const state = GameState.createInitial();
+    const opA = { suit: 'spades', rank: 'A', value: 14, tapped: true };
+    const opB = { suit: 'clubs', rank: 'K', value: 13, tapped: true };
+    state.operatives.push(opA, opB);
+    state.leader.tapped = true;
+
+    await Turn.processEndOfTurn(state);
+
+    TestRunner.assert(!opA.tapped, 'operative A untapped');
+    TestRunner.assert(!opB.tapped, 'operative B untapped');
+    TestRunner.assert(!state.leader.tapped, 'Leader untapped');
+    TestRunner.assertArrayLength(GameState.untappedPool(state), 3, 'all three assignable again');
+  });
+
+  TestRunner.test('processEndOfTurn does not crash when there is no leader (legacy save)', async function () {
+    const state = GameState.createInitial();
+    delete state.leader;
+    const op = { suit: 'hearts', rank: '9', value: 9, tapped: true };
+    state.operatives.push(op);
+
+    await Turn.processEndOfTurn(state);
+
+    TestRunner.assert(!op.tapped, 'operative untapped even with no leader present');
+  });
+
+});
+
 TestRunner.describe('turn.js — Leader Skill High-Water Mark (#48)', function () {
 
   TestRunner.test('promoting an Operative raises leaderSkillLevel and syncs leader.value', async function () {
