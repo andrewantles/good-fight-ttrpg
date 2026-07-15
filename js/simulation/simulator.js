@@ -255,6 +255,26 @@ const Simulator = (() => {
     }
   }
 
+  // ─── Per-turn observation seam ─────────────────────────────────────────────
+
+  /**
+   * Emit one per-turn snapshot to an optional observer. Minimal and
+   * backward-compatible: `options.onSnapshot` defaults to a no-op, so a game run
+   * without it behaves exactly as before. The simulator stays metrics-agnostic —
+   * it forwards only the live state and the turn's Crackdown result
+   * ({roll,triggered,tier,penalties} or null on the Victory turn); the metrics
+   * recorder (#25) owns every derived snapshot shape. Called once per turn at a
+   * consistent point (after Crackdown, or before the Victory return).
+   * @param {object} options - runGame options (may carry onSnapshot)
+   * @param {object} state - live game state
+   * @param {?object} crackdown - the turn's Crackdown result, or null
+   */
+  function emitSnapshot(options, state, crackdown) {
+    if (typeof options.onSnapshot === 'function') {
+      options.onSnapshot({ state, crackdown });
+    }
+  }
+
   // ─── Full-game loop ────────────────────────────────────────────────────────
 
   /**
@@ -345,11 +365,19 @@ const Simulator = (() => {
       // Victory can only be set by a Late-Game Operation resolving in
       // processEndOfTurn (or, defensively, by an action above). Mirror app.js
       // endTurn: on Victory the run is over — skip Crackdown and the increment.
+      // Emit the final per-turn snapshot BEFORE returning so an observer (metrics
+      // recorder, #25) captures the winning turn; no Crackdown ran, so crackdown
+      // is null. currentTurn is not yet incremented, matching the normal path.
       if (state.victory) {
+        emitSnapshot(options, state, null);
         return { outcome: 'victory', reason: 'victory', turns: state.currentTurn, state };
       }
 
-      await Crackdown.resolveCrackdown(state);
+      // Per-turn observation seam (#25): the Crackdown result is forwarded to the
+      // observer, then a snapshot is emitted once per turn at this consistent
+      // point (after Crackdown, before the turn-counter increment).
+      const crackdown = await Crackdown.resolveCrackdown(state);
+      emitSnapshot(options, state, crackdown);
       state.currentTurn += 1;
 
       if (state.currentTurn > maxTurns) {

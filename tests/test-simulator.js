@@ -150,6 +150,30 @@ TestRunner.describe('simulator.js — Recruit action (orchestrated)', function (
 
 });
 
+TestRunner.describe('simulator.js — onSnapshot observer hook', function () {
+
+  TestRunner.test('onSnapshot fires once per turn with { state, crackdown } and defaults to a no-op', async function () {
+    // A game that stalls fast via maxTurns: the Leader keeps hasLegalMove true,
+    // the pass strategy never acts, so it plays exactly maxTurns turns.
+    const calls = [];
+    Dice.setProvider(() => Promise.resolve(50)); // d100=50 > heat(0) => no crackdown
+    const result = await Simulator.runGame(() => null, {
+      maxTurns: 3,
+      setup: (s) => { s.recruitDeck = []; return s; }, // Leader present → runs to maxTurns
+      onSnapshot: (ctx) => calls.push(ctx),
+    });
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(result.reason, 'max_turns', 'game ran to the maxTurns cap');
+    // One snapshot per turn played (turns 1..3, snapshot emitted before increment).
+    TestRunner.assertArrayLength(calls, 3, 'one snapshot per turn');
+    TestRunner.assert(calls[0].state === result.state, 'snapshot carries the live state');
+    TestRunner.assert('crackdown' in calls[0], 'snapshot context carries the crackdown result key');
+    TestRunner.assert(calls[0].crackdown && calls[0].crackdown.triggered === false, 'crackdown result forwarded (roll 50 > heat 0 → not triggered)');
+  });
+
+});
+
 TestRunner.describe('simulator.js — Difficulty & digital input', function () {
 
   TestRunner.test('the Difficulty parameter is applied to the game state', async function () {
