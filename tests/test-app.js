@@ -464,13 +464,14 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
     TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
 
-    // Stub the picker to auto-return the recruited operative (not the Leader)
-    // and the engine call to record it.
-    const originalAssign = UI.assignOperatives;
+    // Stub the multi-select picker to auto-return the single recruited operative
+    // (not the Leader) and the engine call to record it. Each selected unit is
+    // resolved independently, so the engine is called with a single-unit array.
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveMinorVandalism;
     let received = null;
-    UI.assignOperatives = async function (count, available) {
-      return available.filter((o) => !o.isLeader).slice(0, count);
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader).slice(0, 1);
     };
     Operations.resolveMinorVandalism = async function (state, operatives) {
       received = operatives;
@@ -483,10 +484,10 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'each unit resolves independently (one unit → one-unit array)');
       TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveMinorVandalism = originalResolve;
       GameState.deleteSave('current');
     }
@@ -511,9 +512,9 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
     TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
 
-    const originalAssign = UI.assignOperatives;
-    UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.slice(0, 1);
     };
 
     try {
@@ -528,7 +529,70 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
       TestRunner.assert(/Minor Vandalism failed/.test(log), 'log reflects the failure, not the success message');
     } finally {
       Dice.setProvider(null);
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('selecting 2 units (#63) runs 2 INDEPENDENT resolutions — 2 log lines, deltas from 2 distinct rolls', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 0;
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    const opB = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(opA, opB);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    // Multi-select picker returns BOTH recruited operatives (not the Leader).
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader);
+    };
+
+    // Deterministic dice: run 1 succeeds (d100=5, then d4=2 → no draw),
+    // run 2 fails (d100=100 > 100 − 1 Heat). Two distinct d100 rolls prove the
+    // two resolutions were independent, not one shared roll.
+    const queue = [5, 2, 100];
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve(queue[i++]));
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const entries = document.querySelectorAll('#turn-log .log-entry');
+      TestRunner.assertEqual(entries.length, 2, 'two units produce two independent log entries');
+
+      const rollValues = Array.from(document.querySelectorAll('#turn-log .roll-value'))
+        .map((s) => s.textContent);
+      TestRunner.assertEqual(rollValues.length, 2, 'each resolution logged its own d100 roll');
+      TestRunner.assertEqual(rollValues[0], '5', 'first run logged its own roll (5)');
+      TestRunner.assertEqual(rollValues[1], '100', 'second run logged its own distinct roll (100)');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Minor Vandalism succeeded/.test(log), 'first run succeeded');
+      TestRunner.assert(/Minor Vandalism failed/.test(log), 'second run failed');
+
+      // Deltas reflect exactly one success (run 1): +1 Influence, +1 Heat.
+      TestRunner.assertEqual(App.getState().influence, 1, '+1 Influence from the single success');
+      TestRunner.assertEqual(App.getState().heat, 1, '+1 Heat from the single success');
+
+      // Both selected units are tapped for the turn.
+      TestRunner.assert(opA.tapped && opB.tapped, 'both selected units tapped');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperativesRange = originalAssign;
       GameState.deleteSave('current');
     }
   });
@@ -556,14 +620,14 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
 
     // Stub the picker to select the Leader (the first entry of the assignable
     // pool) and spy on the engine call.
-    const originalAssign = UI.assignOperatives;
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveMinorVandalism;
     let received = null;
     let offered = null;
-    UI.assignOperatives = async function (count, available) {
+    UI.assignOperativesRange = async function (min, max, available) {
       offered = available;
       // pick the Leader specifically
-      return available.filter((o) => o.isLeader).slice(0, count);
+      return available.filter((o) => o.isLeader).slice(0, 1);
     };
     Operations.resolveMinorVandalism = async function (state, operatives) {
       received = operatives;
@@ -577,11 +641,11 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
       TestRunner.assert(offered && offered.some((o) => o.isLeader),
         'the assignment picker was offered the Leader');
       TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one unit assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'the single selected unit resolves as a one-unit array');
       TestRunner.assertEqual(received[0], App.getState().leader,
         'the Leader was passed to the engine as the assigned operative');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveMinorVandalism = originalResolve;
       GameState.deleteSave('current');
     }
@@ -610,12 +674,12 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
     App.getState().heat = 90; // force failures so nothing detains/changes the pool
     App.renderGameState();
 
-    const originalAssign = UI.assignOperatives;
+    const originalAssign = UI.assignOperativesRange;
     let offered = null;
     try {
       // First execution: the Leader acts and should tap.
-      UI.assignOperatives = async function (count, available) {
-        return available.filter((o) => o.isLeader).slice(0, count);
+      UI.assignOperativesRange = async function (min, max, available) {
+        return available.filter((o) => o.isLeader).slice(0, 1);
       };
       Dice.setProvider(() => Promise.resolve(99));
       document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
@@ -624,9 +688,9 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
       TestRunner.assert(App.getState().leader.tapped, 'the Leader tapped after acting');
 
       // Second execution: the picker must NOT be offered the tapped Leader.
-      UI.assignOperatives = async function (count, available) {
+      UI.assignOperativesRange = async function (min, max, available) {
         offered = available;
-        return available.slice(0, count);
+        return available.slice(0, 1);
       };
       document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
       await new Promise((r) => setTimeout(r, 0));
@@ -641,7 +705,7 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
       await App.endTurn();
       TestRunner.assert(!App.getState().leader.tapped, 'End Turn untapped the Leader');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Dice.setProvider(null);
       GameState.deleteSave('current');
     }
@@ -695,13 +759,14 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
     const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
     TestRunner.assert(btn, 'Gather Supplies button should render when executable');
 
-    // Stub the picker to auto-return the recruited operative (not the Leader)
-    // and the engine call to record it.
-    const originalAssign = UI.assignOperatives;
+    // Stub the multi-select picker to auto-return the single recruited operative
+    // (not the Leader) and the engine call to record it. Each selected unit is
+    // resolved independently, so the engine is called with a single-unit array.
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveGatherSupplies;
     let received = null;
-    UI.assignOperatives = async function (count, available) {
-      return available.filter((o) => !o.isLeader).slice(0, count);
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader).slice(0, 1);
     };
     Operations.resolveGatherSupplies = async function (state, operatives) {
       received = operatives;
@@ -714,7 +779,7 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       TestRunner.assert(received !== null, 'resolveGatherSupplies was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'each unit resolves independently (one unit → one-unit array)');
       TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
 
       // Log reflects the 3-roll result.
@@ -722,8 +787,68 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
       TestRunner.assert(/Gather Supplies/.test(log), 'log mentions Gather Supplies');
       TestRunner.assert(/2/.test(log), 'log reflects the number of supplies gained');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveGatherSupplies = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('selecting 2 units (#63) runs 2 INDEPENDENT resolutions — 2 log lines, supplies from 2 distinct roll sets', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 50; // threshold 100 − 50 = 50, so rolls > 50 fail
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    const opB = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(opA, opB);
+    const startSupplies = App.getState().supplies;
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
+    TestRunner.assert(btn, 'Gather Supplies button should render when executable');
+
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader);
+    };
+
+    // Deterministic dice, real engine: unit A rolls 5,5,5 (3 successes → +3),
+    // unit B rolls 90,90,5 (1 success → +1). Six distinct rolls across two
+    // 3-roll resolutions prove the runs were independent, not one shared set.
+    const queue = [5, 5, 5, 90, 90, 5];
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve(queue[i++]));
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const entries = Array.from(document.querySelectorAll('#turn-log .log-entry'));
+      TestRunner.assertEqual(entries.length, 2, 'two units produce two independent log entries');
+
+      const rollValues = document.querySelectorAll('#turn-log .roll-value');
+      TestRunner.assertEqual(rollValues.length, 6, 'each resolution logged its own 3 d100 rolls (2 × 3)');
+
+      TestRunner.assert(/3\/3 rolls succeeded/.test(entries[0].textContent), 'first run: 3/3 successes');
+      TestRunner.assert(/\+3 Supplies/.test(entries[0].textContent), 'first run gained 3 Supplies');
+      TestRunner.assert(/1\/3 rolls succeeded/.test(entries[1].textContent), 'second run: 1/3 successes');
+      TestRunner.assert(/\+1 Supplies/.test(entries[1].textContent), 'second run gained 1 Supply');
+
+      // Total supplies delta reflects the two independent resolutions: +3 +1.
+      TestRunner.assertEqual(App.getState().supplies, startSupplies + 4,
+        '+4 Supplies total from two independent 3-roll resolutions');
+
+      TestRunner.assert(opA.tapped && opB.tapped, 'both selected units tapped');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperativesRange = originalAssign;
       GameState.deleteSave('current');
     }
   });
@@ -844,12 +969,11 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
     App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
 
     // With zero operatives / supplies, Significant Vandalism (needs 4 operatives,
-    // 5 supplies) is not executable and no button should render.
+    // 5 supplies) is not executable — but per #62 it still renders, disabled.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="significant_vandalism"]'),
-      'no Significant Vandalism button when there are no available operatives'
-    );
+    const sigLocked = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(sigLocked, 'Significant Vandalism button is present even when unavailable (#62)');
+    TestRunner.assert(sigLocked.disabled, 'Significant Vandalism renders disabled/grayed when unavailable');
 
     // Give the player four available operatives and enough supplies.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
@@ -862,6 +986,7 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
 
     const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
     TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+    TestRunner.assert(!btn.disabled, 'Significant Vandalism is enabled once affordable');
 
     // Stub the picker to auto-return operatives and the engine call to record it.
     const originalAssign = UI.assignOperatives;
@@ -904,6 +1029,62 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
 
 TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
 
+  TestRunner.test('fixed K>1 op (#63 guard): Average Vandalism still uses the exact-2 picker, never the K=1 batch range', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    App.getState().operatives.push(op1, op2, op3);
+    GameState.addSupplies(App.getState(), 3);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+
+    // Spy on BOTH pickers. The batch K=1 change (#63) must NOT bleed into the
+    // fixed K>1 flow: Average Vandalism must call the exact-count picker with
+    // count === 2 and must never call the min≠max batch range picker.
+    const originalAssign = UI.assignOperatives;
+    const originalRange = UI.assignOperativesRange;
+    const originalResolve = Operations.resolveAverageVandalism;
+    let assignCount = null;
+    let rangeArgs = null;
+    UI.assignOperatives = async function (count, available) {
+      assignCount = count;
+      return available.filter((o) => !o.isLeader).slice(0, count);
+    };
+    UI.assignOperativesRange = async function (min, max, available) {
+      rangeArgs = { min, max };
+      return available.filter((o) => !o.isLeader).slice(0, min);
+    };
+    Operations.resolveAverageVandalism = async function () {
+      return { roll: 10, success: true };
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(assignCount, 2, 'Average Vandalism asked for exactly 2 operatives (fixed K)');
+      TestRunner.assert(rangeArgs === null || rangeArgs.min === rangeArgs.max,
+        'the fixed K>1 op never opened a multi-select batch range (min ≠ max)');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalRange;
+      Operations.resolveAverageVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
   TestRunner.test('renders an Average Vandalism button when executable and clicking it reaches resolveAverageVandalism', async function () {
     const container = document.getElementById('app');
     container.innerHTML = `
@@ -917,12 +1098,11 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
     App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
 
     // With zero operatives / supplies, Average Vandalism (needs 2 operatives,
-    // 3 supplies) is not executable and no button should render.
+    // 3 supplies) is not executable — but per #62 it still renders, disabled.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="average_vandalism"]'),
-      'no Average Vandalism button when there are no available operatives'
-    );
+    const avgLocked = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(avgLocked, 'Average Vandalism button is present even when unavailable (#62)');
+    TestRunner.assert(avgLocked.disabled, 'Average Vandalism renders disabled/grayed when unavailable');
 
     // Give the player two available operatives and enough supplies.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
@@ -933,6 +1113,7 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
 
     const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
     TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+    TestRunner.assert(!btn.disabled, 'Average Vandalism is enabled once affordable');
 
     // Stub the picker to auto-return operatives and the engine call to record it.
     const originalAssign = UI.assignOperatives;
@@ -1034,35 +1215,33 @@ TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
     App.beginGame();
   }
 
-  TestRunner.test('button gated by canExecute: hidden without 4 operatives + 5 supplies, shown with them', function () {
+  TestRunner.test('button gated by canExecute: always present, disabled without 4 operatives + 5 supplies, enabled with them (#62)', function () {
     setupScoutDOM();
 
-    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies) unavailable.
+    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies)
+    // unavailable, but per #62 it renders disabled rather than being hidden.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="scout"]'),
-      'no Scout button when there are no available operatives'
-    );
+    let scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button is present even with no available operatives');
+    TestRunner.assert(scout.disabled, 'Scout is disabled with no available operatives');
 
-    // Four operatives but no supplies — still unavailable.
+    // Four operatives but no supplies — still unavailable, still present+disabled.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
     const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
     const op3 = { suit: 'clubs', rank: 'K', value: 13 };
     const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
     App.getState().operatives.push(op1, op2, op3, op4);
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="scout"]'),
-      'no Scout button with 4 operatives but 0 supplies'
-    );
+    scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button still present with 4 operatives but 0 supplies');
+    TestRunner.assert(scout.disabled, 'Scout still disabled with 4 operatives but 0 supplies');
 
-    // Add the 5 supplies — now Scout is available.
+    // Add the 5 supplies — now Scout is available and enabled.
     GameState.addSupplies(App.getState(), 5);
     App.renderGameState();
-    TestRunner.assert(
-      document.querySelector('#operations-list [data-operation="scout"]'),
-      'Scout button renders with 4 operatives and 5 supplies'
-    );
+    scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button present with 4 operatives and 5 supplies');
+    TestRunner.assert(!scout.disabled, 'Scout is enabled with 4 operatives and 5 supplies');
 
     GameState.deleteSave('current');
   });
@@ -2400,6 +2579,223 @@ TestRunner.describe('app.js — Heat/Influence progress bars (#58)', function ()
     } finally {
       GameState.deleteSave('current');
     }
+  });
+
+});
+
+TestRunner.describe('app.js — Operation tooltips (#61)', function () {
+
+  // Game DOM including the Operations panel and personnel sections (so both
+  // operation buttons and Recruit buttons can be exercised).
+  function setupOpsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('a base operation button carries a static rule tooltip (requirements, success, failure)', function () {
+    setupOpsDOM();
+    // Fresh game: the Leader bootstraps K=1 ops, so Minor Vandalism renders.
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button renders');
+    const tip = btn.title;
+    TestRunner.assert(/Requires/i.test(tip), 'tooltip states requirements');
+    TestRunner.assert(/1 Operative/.test(tip), 'tooltip names the operative requirement');
+    TestRunner.assert(/Success/i.test(tip) && /\+1 Influence, \+1 Heat/.test(tip),
+      'tooltip states the success effect from OPERATION_META');
+    TestRunner.assert(/Failure/i.test(tip) && /No effect/.test(tip),
+      'tooltip states the failure consequence from OPERATION_META');
+    TestRunner.assert(!/%/.test(tip), 'tooltip shows no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Mid-Game Operation renders its own type-specific tooltip', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // Make a Mid-Game Op executable: 6 operatives, 10 supplies, Influence >= 45.
+    for (let i = 0; i < 6; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 10);
+    GameState.addInfluence(state, 45);
+    state.availableMidGameOps.push({ tableRoll: 1, type: 'embed_mole' });
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="embed_mole"]');
+    TestRunner.assert(btn, 'a scouted embed_mole Mid-Game Op renders a button');
+    const tip = btn.title;
+    TestRunner.assert(/Requires/i.test(tip) && /45 Influence/.test(tip),
+      'tooltip states requirements incl. the Mid-Game Influence threshold');
+    TestRunner.assert(/Success/i.test(tip) && /−35 Heat/.test(tip),
+      'tooltip shows embed_mole\'s own success effect, not a placeholder');
+    TestRunner.assert(/Failure/i.test(tip) && /captured/.test(tip),
+      'tooltip shows the capture failure consequence');
+    TestRunner.assert(!/%/.test(tip), 'no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Late-Game Operation and Late-Game Scout render their own tooltips', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // Make a Late-Game Op executable: 12 operatives, 20 supplies, Influence >= 90.
+    for (let i = 0; i < 12; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 20);
+    GameState.addInfluence(state, 90);
+    state.availableLateGameOps.push({ tableRoll: 1, type: 'neutralize_leadership' });
+    App.renderGameState();
+
+    const lateBtn = document.querySelector('#operations-list [data-operation="neutralize_leadership"]');
+    TestRunner.assert(lateBtn, 'a scouted neutralize_leadership Late-Game Op renders a button');
+    const lateTip = lateBtn.title;
+    TestRunner.assert(/Requires/i.test(lateTip) && /90 Influence/.test(lateTip),
+      'tooltip states the Late-Game Influence threshold');
+    TestRunner.assert(/Success/i.test(lateTip) && /−50 Heat/.test(lateTip),
+      'tooltip shows neutralize_leadership\'s own success effect');
+    TestRunner.assert(/Failure/i.test(lateTip) && /captured/.test(lateTip),
+      'tooltip shows the capture failure consequence');
+
+    // Late-Game Scout (a fixed op) is now available too and carries a tooltip.
+    const scoutBtn = document.querySelector('#operations-list [data-operation="late_game_scout"]');
+    TestRunner.assert(scoutBtn, 'Late-Game Scout button renders when affordable');
+    TestRunner.assert(/Reveals a Late-Game Operation opportunity/.test(scoutBtn.title),
+      'Late-Game Scout tooltip carries its own success effect');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('Recruit buttons carry a static tooltip (Recruit is a d10/d12 roll-over, absent from OPERATION_META)', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    state.recruitPool.push({ suit: 'hearts', rank: '5', value: 5 });
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for a pooled card');
+    const tip = btn.title;
+    TestRunner.assert(/Recruit/i.test(tip), 'tooltip names the Recruit action');
+    TestRunner.assert(/Success/i.test(tip) && /Initiate/.test(tip),
+      'tooltip states the success effect (joins as an Initiate)');
+    TestRunner.assert(/Failure/i.test(tip) && /pool/i.test(tip),
+      'tooltip states the failure consequence (stays in the pool)');
+    TestRunner.assert(!/%/.test(tip), 'no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+});
+
+TestRunner.describe('app.js — Always-visible grayed-out operations (#62)', function () {
+
+  function setupOpsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('every fixed operation button is present regardless of availability; unaffordable ones are disabled', function () {
+    setupOpsDOM();
+    // Fresh game: only the Leader is available, 0 supplies. Minor Vandalism /
+    // Gather Supplies (K=1) are executable; the rest are not — but ALL render.
+    App.renderGameState();
+
+    for (const id of ['minor_vandalism', 'average_vandalism', 'significant_vandalism',
+                      'gather_supplies', 'scout', 'late_game_scout']) {
+      const btn = document.querySelector(`#operations-list [data-operation="${id}"]`);
+      TestRunner.assert(btn, `${id} button is present in the DOM`);
+    }
+
+    const minor = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(!minor.disabled, 'Minor Vandalism (affordable) is enabled');
+
+    const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(sig.disabled, 'Significant Vandalism (unaffordable) is disabled/grayed');
+    const scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout.disabled, 'Scout (unaffordable) is disabled/grayed');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a disabled operation cannot activate its engine handler when clicked', async function () {
+    setupOpsDOM();
+    App.renderGameState();
+
+    const originalAssign = UI.assignOperatives;
+    let assignCalled = false;
+    UI.assignOperatives = async function () { assignCalled = true; return null; };
+    try {
+      const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+      sig.click();
+      await new Promise((r) => setTimeout(r, 0));
+      TestRunner.assert(!assignCalled, 'clicking a disabled op does not reach the assignment/engine flow');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('an unavailable operation gains a "Locked: needs X (have Y)" tooltip line naming every short resource', function () {
+    setupOpsDOM();
+    // Fresh game: pool is just the Leader (1 operative), 0 supplies.
+    App.renderGameState();
+
+    const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    const tip = sig.title;
+    TestRunner.assert(/Locked:/.test(tip), 'disabled op tooltip carries a Locked line');
+    TestRunner.assert(/4 Operatives \(have 1\)/.test(tip),
+      'Locked line names the Operatives shortfall (need 4, have 1)');
+    TestRunner.assert(/5 Supplies \(have 0\)/.test(tip),
+      'Locked line names the Supplies shortfall (need 5, have 0)');
+    // Influence is not required here, so it must not appear in the Locked line.
+    TestRunner.assert(!/Influence \(have/.test(tip),
+      'Locked line omits resources that are not short');
+
+    // An affordable op has no Locked line.
+    const minor = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(!/Locked:/.test(minor.title), 'an available op shows no Locked line');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Mid-Game Op short only on Influence names just Influence in its Locked line', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // 6 operatives + 10 supplies satisfy headcount/supplies; Influence 0 < 45.
+    for (let i = 0; i < 6; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 10);
+    state.availableMidGameOps.push({ tableRoll: 1, type: 'embed_mole' });
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="embed_mole"]');
+    TestRunner.assert(btn && btn.disabled, 'embed_mole renders disabled while Influence is short');
+    const tip = btn.title;
+    TestRunner.assert(/Locked: needs 45 Influence \(have 0\)/.test(tip),
+      'Locked line names only the Influence shortfall (need 45, have 0)');
+    TestRunner.assert(!/Operatives \(have/.test(tip) && !/Supplies \(have/.test(tip),
+      'Locked line omits the satisfied Operatives / Supplies requirements');
+
+    GameState.deleteSave('current');
   });
 
 });

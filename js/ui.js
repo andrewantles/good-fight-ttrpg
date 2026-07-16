@@ -205,17 +205,41 @@ const UI = (() => {
 
   /**
    * Show a picker letting the player select exactly `count` Operatives
-   * to assign to an Operation.
+   * to assign to an Operation. Thin wrapper over assignOperativesRange with
+   * min === max === count (the fixed-K flow used by every Operation whose
+   * operative requirement is a single fixed number).
    * @param {number} count - Exact number of Operatives to select (K)
    * @param {Array<{suit, rank, value}>} availableOperatives
    * @returns {Promise<Array<{suit, rank, value}>>} Resolves with the chosen Operative card objects
    */
   function assignOperatives(count, availableOperatives) {
+    return assignOperativesRange(count, count, availableOperatives);
+  }
+
+  /**
+   * Show a picker letting the player select between `min` and `max` Operatives
+   * (inclusive) to assign to an Operation. This backs both the fixed-K flow
+   * (min === max, via assignOperatives) and the K=1 batch flow (#63): the two
+   * 1-Operative Operations (Minor Vandalism, Gather Supplies) call this with
+   * min=1, max=pool size so the player can run the Operation on several
+   * untapped units at once (each unit is resolved independently by the caller).
+   * @param {number} min - Minimum number of Operatives to select (>= 1)
+   * @param {number} max - Maximum number of Operatives to select
+   * @param {Array<{suit, rank, value}>} availableOperatives
+   * @returns {Promise<Array<{suit, rank, value}>>} Resolves with the chosen Operative card objects
+   */
+  function assignOperativesRange(min, max, availableOperatives) {
     return new Promise((resolve) => {
       const overlay = createOverlay();
+      // A fixed-K selection ("Select 2 Operatives") reads differently from a
+      // batch selection ("Select 1–4 Operatives") so the player knows they may
+      // pick more than one.
+      const heading = min === max
+        ? `Select ${min} Operative${min === 1 ? '' : 's'} to assign:`
+        : `Select ${min}–${max} Operative${max === 1 ? '' : 's'} to assign:`;
       overlay.innerHTML = `
         <div class="modal">
-          <h3>Select ${count} Operative${count === 1 ? '' : 's'} to assign:</h3>
+          <h3>${heading}</h3>
           <div class="operative-picker" data-operative-list></div>
           <button type="button" data-submit disabled>Submit</button>
         </div>
@@ -237,7 +261,7 @@ const UI = (() => {
 
       function updateSubmitState() {
         const checkedCount = checkboxes.filter((cb) => cb.checked).length;
-        submitButton.disabled = checkedCount !== count;
+        submitButton.disabled = checkedCount < min || checkedCount > max;
       }
 
       checkboxes.forEach((cb) => cb.addEventListener('change', updateSubmitState));
@@ -266,6 +290,7 @@ const UI = (() => {
     recruitDieChoice,
     recruitAttributerChoice,
     assignOperatives,
+    assignOperativesRange,
     compoundFailureChoice,
   };
 })();

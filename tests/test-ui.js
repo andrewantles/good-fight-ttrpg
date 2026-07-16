@@ -349,4 +349,29 @@ TestRunner.describe('ui.js — Operative Assignment Picker', function () {
     TestRunner.assertArrayLength(result, 4);
   });
 
+  TestRunner.test('assignOperativesRange (#63) lets the player select MORE than one unit (min 1, up to max)', async function () {
+    const promise = UI.assignOperativesRange(1, pool.length, pool);
+    const overlay = document.querySelector('.modal-overlay');
+    const submit = overlay.querySelector('[data-submit]');
+    const checkboxes = Array.from(overlay.querySelectorAll('input[type="checkbox"]'));
+
+    TestRunner.assert(submit.disabled, 'Submit starts disabled with nothing selected (min 1)');
+
+    checkboxes[0].checked = true;
+    checkboxes[0].dispatchEvent(new Event('change'));
+    TestRunner.assert(!submit.disabled, 'Submit enables at 1 selected (min satisfied)');
+
+    // Selecting a SECOND unit stays valid — this is the batch capability the
+    // exact-count picker forbids.
+    checkboxes[2].checked = true;
+    checkboxes[2].dispatchEvent(new Event('change'));
+    TestRunner.assert(!submit.disabled, 'Submit stays enabled with 2 selected (batch allowed)');
+
+    submit.click();
+    const result = await promise;
+    TestRunner.assertArrayLength(result, 2);
+    TestRunner.assertEqual(result[0], pool[0], 'resolves with the first selected unit');
+    TestRunner.assertEqual(result[1], pool[2], 'resolves with the second selected unit');
+  });
+
 });
