@@ -56,6 +56,57 @@ TestRunner.describe('strategies.js — Compound-Failure resolution rule', functi
 
 });
 
+TestRunner.describe('strategies.js — epsilon-greedy exploration (anti-starvation, #59)', function () {
+
+  // Leader-only start (createInitial has no Operatives and an empty Recruit
+  // Pool): the ONLY legal actions are the two K=1 fillers, and legalActions
+  // enumerates them in candidatesByKind key order → index 0 = minor_vandalism,
+  // index 1 = gather_supplies. This is exactly the starvation trap in #59.
+  function leaderOnlyState() {
+    return GameState.createInitial();
+  }
+
+  // Stubbed RNG that yields `values` in sequence (then repeats). The epsilon
+  // strategies draw once for the explore/exploit coin, then (if exploring) once
+  // more for the uniform index.
+  function seqRandom(values) {
+    let i = 0;
+    return () => values[i++ % values.length];
+  }
+
+  // Priority tops over the Leader-only legal set [minor_vandalism,
+  // gather_supplies]: Cautious/Balanced rank gather above minor; Aggressive the
+  // reverse. exploreSeq forces the coin BELOW epsilon then picks a uniform index
+  // landing on an action that is NOT that strategy's priority top.
+  const cases = [
+    { name: 'Cautious', epsilon: 0.05, priorityTop: 'gather_supplies',
+      exploreSeq: [0.01, 0.0], exploreType: 'minor_vandalism' },
+    { name: 'Balanced', epsilon: 0.10, priorityTop: 'gather_supplies',
+      exploreSeq: [0.05, 0.0], exploreType: 'minor_vandalism' },
+    { name: 'Aggressive', epsilon: 0.15, priorityTop: 'minor_vandalism',
+      exploreSeq: [0.10, 0.9], exploreType: 'gather_supplies' },
+  ];
+
+  cases.forEach(({ name, epsilon, priorityTop, exploreSeq, exploreType }) => {
+    TestRunner.test(`${name}: RNG below epsilon (${epsilon}) samples off priority`, function () {
+      Strategies.setRandomSource(seqRandom(exploreSeq));
+      const action = Strategies[name].chooseAction(leaderOnlyState());
+      Strategies.setRandomSource(null);
+      TestRunner.assertEqual(action.type, exploreType,
+        `${name} explores uniformly (${exploreType}), not its priority top (${priorityTop})`);
+    });
+
+    TestRunner.test(`${name}: RNG above epsilon (${epsilon}) follows priority`, function () {
+      Strategies.setRandomSource(() => 0.99);
+      const action = Strategies[name].chooseAction(leaderOnlyState());
+      Strategies.setRandomSource(null);
+      TestRunner.assertEqual(action.type, priorityTop,
+        `${name} returns its priority-ordered top choice (${priorityTop}) unchanged`);
+    });
+  });
+
+});
+
 TestRunner.describe('strategies.js — every emitted action is engine-legal', function () {
 
   // Independent legality oracle: re-derives whether `action` is acceptable

@@ -191,6 +191,30 @@ const Strategies = (() => {
     return null;
   }
 
+  /**
+   * Uniform sample from the full legal action set (the same set Random uses),
+   * via the injectable RNG. Returns null (end turn) when nothing is legal.
+   */
+  function uniformPick(state) {
+    const legal = legalActions(state);
+    if (legal.length === 0) return null;
+    return legal[Math.floor(randomSource() * legal.length)];
+  }
+
+  /**
+   * Epsilon-greedy choice for the three fixed strategies (#59): with probability
+   * `epsilon` EXPLORE — sample uniformly from the full legal set instead of
+   * following the priority ordering; otherwise EXPLOIT — take the priority top.
+   * This frees a fixed strategy from starving on a permanently-preferred action
+   * (e.g. Cautious ranking Gather above Minor Vandalism, the only op that can
+   * seed the Recruit Pool with just the Leader). Draws from the SAME injectable
+   * RNG so tests stay deterministic. Random is unaffected (it always explores).
+   */
+  function epsilonGreedy(state, order, epsilon) {
+    if (randomSource() < epsilon) return uniformPick(state);
+    return pickByPriority(state, order);
+  }
+
   // ─── Priority orderings (high → low) ────────────────────────────────────────
   const CAUTIOUS_ORDER = [
     'late_game_op', 'mid_game_op', 'late_game_scout', 'scout',
@@ -229,25 +253,29 @@ const Strategies = (() => {
     return opSlack >= supplySlack ? 'detain' : 'supplies';
   }
 
+  // ─── Epsilon-greedy exploration rates (#59) ─────────────────────────────────
+  // Per-choice probability that a fixed strategy ignores its priority ordering
+  // and samples uniformly from the legal set instead — anti-starvation, scaled
+  // by risk appetite (Cautious explores least, Aggressive most).
+  const CAUTIOUS_EPSILON = 0.05;
+  const BALANCED_EPSILON = 0.10;
+  const AGGRESSIVE_EPSILON = 0.15;
+
   // ─── Public strategy objects ────────────────────────────────────────────────
   const Cautious = {
-    chooseAction: (state) => pickByPriority(state, CAUTIOUS_ORDER),
+    chooseAction: (state) => epsilonGreedy(state, CAUTIOUS_ORDER, CAUTIOUS_EPSILON),
     compoundFailureChoice: () => 'supplies',
   };
   const Aggressive = {
-    chooseAction: (state) => pickByPriority(state, AGGRESSIVE_ORDER),
+    chooseAction: (state) => epsilonGreedy(state, AGGRESSIVE_ORDER, AGGRESSIVE_EPSILON),
     compoundFailureChoice: () => 'detain',
   };
   const Balanced = {
-    chooseAction: (state) => pickByPriority(state, BALANCED_ORDER),
+    chooseAction: (state) => epsilonGreedy(state, BALANCED_ORDER, BALANCED_EPSILON),
     compoundFailureChoice: (state) => balancedCompoundChoice(state),
   };
   const Random = {
-    chooseAction: (state) => {
-      const legal = legalActions(state);
-      if (legal.length === 0) return null;
-      return legal[Math.floor(randomSource() * legal.length)];
-    },
+    chooseAction: (state) => uniformPick(state),
     compoundFailureChoice: () => (randomSource() < 0.5 ? 'detain' : 'supplies'),
   };
 
