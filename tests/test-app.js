@@ -2303,3 +2303,42 @@ TestRunner.describe('app.js — Backfill DOM-wiring tests (#10)', function () {
   });
 
 });
+
+// ─── Suite: app.js — shared roll-vs-threshold log formatter (#57) ────────────
+
+TestRunner.describe('app.js — formatRollCheck shared d100 log formatter (#57)', function () {
+
+  TestRunner.test('basic check (Heat only): roll and threshold in distinct spans + formula', function () {
+    const frag = App.formatRollCheck(62, { heat: 15 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">62</span>, needed ≤ <span class="roll-threshold">85</span> (base 100 − 15 Heat)',
+      'renders roll/threshold spans and the base-100-minus-Heat formula'
+    );
+  });
+
+  TestRunner.test('with an Influence bonus (Gather Supplies): + Influence term, higher threshold', function () {
+    const frag = App.formatRollCheck(40, { heat: 10, influenceBonus: 20 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">40</span>, needed ≤ <span class="roll-threshold">110</span> (base 100 − 10 Heat + 20 Influence)',
+      'Influence bonus is added to the threshold and shown in the formula'
+    );
+  });
+
+  TestRunner.test('with an operative-value bonus (Scout / Mid / Late ops): + operative value term', function () {
+    const frag = App.formatRollCheck(70, { heat: 20, operativeBonus: 14 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">70</span>, needed ≤ <span class="roll-threshold">94</span> (base 100 − 20 Heat + 14 operative value)',
+      'operative-value bonus is added to the threshold and shown in the formula'
+    );
+  });
+
+  TestRunner.test('roll and threshold use distinct span classes (visually distinguishable)', function () {
+    const frag = App.formatRollCheck(50, { heat: 0 });
+    TestRunner.assert(/class="roll-value"/.test(frag), 'roll uses the roll-value class');
+    TestRunner.assert(/class="roll-threshold"/.test(frag), 'threshold uses the roll-threshold class');
+  });
+
+});

@@ -555,6 +555,19 @@ legend {
   margin-right: 6px;
 }
 
+/* Shared roll-vs-threshold log styling (#57): the rolled value and the
+   roll-under threshold it had to clear are visually distinguishable — the
+   roll emphasized, the threshold in the muted target color. */
+.roll-value {
+  color: var(--yellow);
+  font-weight: bold;
+}
+
+.roll-threshold {
+  color: var(--text-muted);
+  font-weight: bold;
+}
+
 /* Unwinnable Advisory — non-blocking hint banner (#14) */
 .advisory {
   display: flex;

@@ -447,12 +447,16 @@ const App = (() => {
     if (!operatives || operatives.length !== 1) return;
     tapUnits(operatives);
 
+    // Capture Heat before resolution — a success adds Heat, but the check ran
+    // against the pre-resolution Heat, so the logged threshold must use it too.
+    const heatAtCheck = gameState.heat;
     const result = await Operations.resolveMinorVandalism(gameState, operatives);
+    const check = formatRollCheck(result.roll, { heat: heatAtCheck });
 
     if (result.success) {
-      addLogEntry(`Minor Vandalism succeeded (rolled ${result.roll}). +1 Influence, +1 Heat.`);
+      addLogEntry(`Minor Vandalism succeeded — ${check}. +1 Influence, +1 Heat.`);
     } else {
-      addLogEntry(`Minor Vandalism failed (rolled ${result.roll}). No effect.`);
+      addLogEntry(`Minor Vandalism failed — ${check}. No effect.`);
     }
 
     GameState.save(gameState, 'current');
@@ -472,15 +476,17 @@ const App = (() => {
     if (!operatives || operatives.length !== 2) return;
     tapUnits(operatives);
 
+    const heatAtCheck = gameState.heat;
     const result = await Operations.resolveAverageVandalism(gameState, operatives);
+    const check = formatRollCheck(result.roll, { heat: heatAtCheck });
 
     if (result.success) {
       addLogEntry(
-        `Average Vandalism succeeded (rolled ${result.roll}). +3 Influence, +3 Heat, +1 Recruit Pool.`
+        `Average Vandalism succeeded — ${check}. +3 Influence, +3 Heat, +1 Recruit Pool.`
       );
     } else {
       addLogEntry(
-        `Average Vandalism failed (rolled ${result.roll}). 1 Operative detained for 1 turn.`
+        `Average Vandalism failed — ${check}. 1 Operative detained for 1 turn.`
       );
     }
 
@@ -508,23 +514,25 @@ const App = (() => {
     tapUnits(operatives);
 
     let secondPenaltyChoice = null;
+    const heatAtCheck = gameState.heat;
     const result = await Operations.resolveSignificantVandalism(gameState, operatives, {
       getSecondPenaltyChoice: async () => {
         secondPenaltyChoice = await UI.compoundFailureChoice();
         return secondPenaltyChoice;
       },
     });
+    const check = formatRollCheck(result.roll, { heat: heatAtCheck });
 
     if (result.success) {
       addLogEntry(
-        `Significant Vandalism succeeded (rolled ${result.roll}). +10 Influence, +10 Heat, +2 Recruit Pool.`
+        `Significant Vandalism succeeded — ${check}. +10 Influence, +10 Heat, +2 Recruit Pool.`
       );
     } else {
       const secondPenalty = secondPenaltyChoice === 'supplies'
         ? '−2 Supplies'
         : '1 more Operative detained 2 turns';
       addLogEntry(
-        `Significant Vandalism failed (rolled ${result.roll}). Compound Failure: 1 Operative detained 2 turns, plus ${secondPenalty}.`
+        `Significant Vandalism failed — ${check}. Compound Failure: 1 Operative detained 2 turns, plus ${secondPenalty}.`
       );
     }
 
@@ -544,12 +552,19 @@ const App = (() => {
     if (!operatives || operatives.length !== 1) return;
     tapUnits(operatives);
 
+    // Gather Supplies rolls each check against 100 − Heat + floor(Influence/2);
+    // capture both before resolution (which only changes Supplies) so every
+    // per-roll threshold reflects the state the rolls actually ran against.
+    const heatAtCheck = gameState.heat;
+    const influenceBonus = Math.floor(gameState.influence / 2);
     const result = await Operations.resolveGatherSupplies(gameState, operatives);
 
     const successes = result.rolls.filter(r => r.success).length;
-    const rollList = result.rolls.map(r => r.roll).join(', ');
+    const rollList = result.rolls
+      .map(r => formatRollCheck(r.roll, { heat: heatAtCheck, influenceBonus }))
+      .join('; ');
     addLogEntry(
-      `Gather Supplies: ${successes}/3 rolls succeeded (${rollList}). +${result.gained} Supplies.`
+      `Gather Supplies: ${successes}/3 rolls succeeded. ${rollList}. +${result.gained} Supplies.`
     );
 
     GameState.save(gameState, 'current');
@@ -762,6 +777,35 @@ const App = (() => {
   }
 
   /**
+   * Shared roll-vs-threshold log fragment for every d100 roll-UNDER check (#57)
+   * — Vandalism tiers, Gather Supplies (per roll), Scout, Late-Game Scout, and
+   * Mid/Late-Game Operations. Generalizes the Recruit-Attempt line style: the
+   * roll and the roll-under threshold it had to clear are rendered in distinct,
+   * visually distinguishable spans (`.roll-value` / `.roll-threshold`), followed
+   * by the formula that produced the threshold (base 100, minus Heat, plus any
+   * operative-value / Influence bonus).
+   *
+   * @param {number} roll - the d100 result
+   * @param {object} mods - { heat, operativeBonus?, influenceBonus? }
+   * @returns {string} e.g.
+   *   'rolled <span class="roll-value">62</span>, needed ≤
+   *    <span class="roll-threshold">85</span> (base 100 − 15 Heat)'
+   */
+  function formatRollCheck(roll, mods) {
+    const heat = (mods && mods.heat) || 0;
+    const operativeBonus = (mods && mods.operativeBonus) || 0;
+    const influenceBonus = (mods && mods.influenceBonus) || 0;
+    const threshold = 100 - heat + operativeBonus + influenceBonus;
+
+    let formula = `base 100 − ${heat} Heat`;
+    if (operativeBonus) formula += ` + ${operativeBonus} operative value`;
+    if (influenceBonus) formula += ` + ${influenceBonus} Influence`;
+
+    return `rolled <span class="roll-value">${roll}</span>, needed ≤ `
+      + `<span class="roll-threshold">${threshold}</span> (${formula})`;
+  }
+
+  /**
    * Add an entry to the turn log.
    */
   function addLogEntry(text) {
@@ -930,6 +974,7 @@ const App = (() => {
     attemptRecruit,
     updateLeaderSkill,
     addLogEntry,
+    formatRollCheck,
     endTurn,
     renderVictory,
     syncInputProviders,
