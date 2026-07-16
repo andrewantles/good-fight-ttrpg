@@ -3,8 +3,9 @@
  *
  * At the end of every turn the Regime rolls d100. If the roll is <= current
  * Heat, a Crackdown is triggered and a penalty is applied from the 5-tier table
- * (selected by the roll's value). Heat is then reduced by the roll's value
- * every turn, regardless of whether the Crackdown triggered.
+ * (selected by the roll's value). Only on a triggering turn is Heat then
+ * reduced by the roll's value; on non-triggering turns the Crackdown step
+ * leaves Heat unchanged so it can accumulate (#56).
  *
  * Engine-only (no DOM). Uses injected Dice / Deck / GameState providers.
  */
@@ -102,10 +103,12 @@ const Crackdown = (() => {
       if (captured.length > 0) {
         Deck.returnCards(state.recruitDeck, captured);
       }
-    }
 
-    // Heat cools by the roll's value every turn, triggered or not (PRD.md).
-    GameState.setHeat(state, state.heat - roll);
+      // Heat only cools on a turn where the Crackdown actually triggers, by
+      // that turn's roll value (#56). On non-triggering turns the Crackdown
+      // step leaves Heat untouched so it can accumulate turn over turn.
+      GameState.setHeat(state, state.heat - roll);
+    }
 
     return { roll, triggered, tier, penalties };
   }
