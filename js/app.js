@@ -320,6 +320,14 @@ const App = (() => {
     if (valTurn) valTurn.textContent = gameState.currentTurn;
     if (valLeader) valLeader.textContent = gameState.leaderSkillLevel;
 
+    // Proximity-to-max fill bars (Heat 0–100, Influence 0–500). Supplies has
+    // no fixed ceiling, so it gets no bar. (#58)
+    const pct = (value, max) => Math.max(0, Math.min(100, (value / max) * 100)) + '%';
+    const barInfluence = el('bar-influence');
+    const barHeat = el('bar-heat');
+    if (barInfluence) barInfluence.style.width = pct(gameState.influence, 500);
+    if (barHeat) barHeat.style.width = pct(gameState.heat, 100);
+
     // Color-code heat
     if (valHeat) {
       valHeat.classList.remove('heat-low', 'heat-med', 'heat-high', 'heat-critical');

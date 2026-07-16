@@ -24,6 +24,8 @@ function setupGameDOM() {
       <span id="val-supplies"></span>
       <span id="val-turn"></span>
       <span id="val-leader"></span>
+      <span class="resource-bar-fill" id="bar-influence"></span>
+      <span class="resource-bar-fill" id="bar-heat"></span>
       <div id="section-recruit-pool"><div class="card-list"></div></div>
       <div id="section-initiates"><div class="card-list"></div></div>
       <div id="section-operatives"><div class="card-list"></div></div>

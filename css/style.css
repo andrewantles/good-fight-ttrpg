@@ -250,6 +250,28 @@ legend {
   font-size: 1.1rem;
 }
 
+/* Proximity-to-max fill bars for Heat/Influence (#58) */
+.resource-bar {
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.resource-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--gold);
+}
+
+[data-resource="heat"] .resource-bar-fill {
+  background: var(--orange);
+}
+
 .icon-btn {
   margin-left: auto;
   background: none;
