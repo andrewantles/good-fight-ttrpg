@@ -433,20 +433,56 @@ const App = (() => {
   }
 
   /**
+   * "Locked: needs X (have Y)" line (#62) naming every resource type an
+   * Operation is currently short on — Influence, then Supplies, then
+   * Operatives, in that order — comparing the OPERATION_META requirements
+   * against live state. Returns '' when nothing is short.
+   * @param {object} meta - an OPERATION_META entry
+   * @param {object} state - live game state
+   * @param {Array} pool - untapped assignable units
+   * @returns {string}
+   */
+  function formatLockedReason(meta, state, pool) {
+    const reqs = meta.requirements || {};
+    const shorts = [];
+    const influenceNeed = operationInfluenceThreshold(meta);
+    if (influenceNeed && state.influence < influenceNeed) {
+      shorts.push(`${influenceNeed} Influence (have ${state.influence})`);
+    }
+    if (reqs.supplies && state.supplies < reqs.supplies) {
+      shorts.push(`${reqs.supplies} Supplies (have ${state.supplies})`);
+    }
+    if (reqs.operatives && pool.length < reqs.operatives) {
+      shorts.push(`${reqs.operatives} Operative${reqs.operatives !== 1 ? 's' : ''} (have ${pool.length})`);
+    }
+    return shorts.length ? 'Locked: needs ' + shorts.join(', ') : '';
+  }
+
+  /**
    * Static rule-content tooltip for an Operation (#61): its resource
    * requirements, success effect, and failure consequence — all sourced from
    * the shared OPERATION_META table (#54), never a computed success chance.
+   * When the Operation is currently unavailable (#62), a "Locked: …" line is
+   * appended naming exactly the short resource(s).
    * @param {string} metaId - key into OPERATION_META
+   * @param {object} [state] - live game state (for the Locked line)
+   * @param {Array} [pool] - untapped assignable units (for the Locked line)
+   * @param {object} [descriptor] - render descriptor carrying `.available`
    * @returns {string} newline-separated tooltip text (empty if unknown)
    */
-  function operationTooltip(metaId) {
+  function operationTooltip(metaId, state, pool, descriptor) {
     const meta = Operations.OPERATION_META[metaId];
     if (!meta) return '';
-    return [
+    const lines = [
       formatOperationRequirements(meta),
       `Success: ${meta.success}`,
       `Failure: ${meta.failure}`,
-    ].join('\n');
+    ];
+    if (descriptor && !descriptor.available && state && pool) {
+      const locked = formatLockedReason(meta, state, pool);
+      if (locked) lines.push(locked);
+    }
+    return lines.join('\n');
   }
 
   /**
@@ -531,14 +567,16 @@ const App = (() => {
     // light up Operations they can't actually crew.
     const pool = GameState.untappedPool(gameState);
 
-    // Only available Operations render for now (#61); #62 flips this to always
-    // render, disabling the ones whose requirements aren't met.
-    const descriptors = collectOperationDescriptors(gameState, pool)
-      .filter((d) => d.available);
+    // Every Operation renders at all times (#62); the ones whose requirements
+    // aren't met render disabled/grayed rather than being hidden.
+    const descriptors = collectOperationDescriptors(gameState, pool);
 
-    const buttons = descriptors.map((d) =>
-      `<button class="btn-operation" data-operation="${d.dataOp}" data-op-key="${d.key}">${d.label}</button>`
-    );
+    const buttons = descriptors.map((d) => {
+      const lockedClass = d.available ? '' : ' op-locked';
+      const disabledAttr = d.available ? '' : ' disabled';
+      return `<button class="btn-operation${lockedClass}" data-operation="${d.dataOp}"`
+        + ` data-op-key="${d.key}"${disabledAttr}>${d.label}</button>`;
+    });
 
     // In-progress Multi-turn Operations (e.g. Scout) are shown alongside the
     // available-operation buttons, with their turn countdown.
@@ -563,8 +601,10 @@ const App = (() => {
     descriptors.forEach((d) => {
       const btn = container.querySelector(`.btn-operation[data-op-key="${d.key}"]`);
       if (!btn) return;
-      btn.title = operationTooltip(d.metaId);
-      btn.addEventListener('click', () => d.onClick());
+      btn.title = operationTooltip(d.metaId, gameState, pool, d);
+      // A disabled/grayed Operation is inert — no handler is wired, so it can
+      // neither be clicked nor activated.
+      if (d.available) btn.addEventListener('click', () => d.onClick());
     });
   }
 

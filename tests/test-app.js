@@ -844,12 +844,11 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
     App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
 
     // With zero operatives / supplies, Significant Vandalism (needs 4 operatives,
-    // 5 supplies) is not executable and no button should render.
+    // 5 supplies) is not executable — but per #62 it still renders, disabled.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="significant_vandalism"]'),
-      'no Significant Vandalism button when there are no available operatives'
-    );
+    const sigLocked = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(sigLocked, 'Significant Vandalism button is present even when unavailable (#62)');
+    TestRunner.assert(sigLocked.disabled, 'Significant Vandalism renders disabled/grayed when unavailable');
 
     // Give the player four available operatives and enough supplies.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
@@ -862,6 +861,7 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
 
     const btn = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
     TestRunner.assert(btn, 'Significant Vandalism button should render when executable');
+    TestRunner.assert(!btn.disabled, 'Significant Vandalism is enabled once affordable');
 
     // Stub the picker to auto-return operatives and the engine call to record it.
     const originalAssign = UI.assignOperatives;
@@ -917,12 +917,11 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
     App.beginGame(); // establishes gameState (starts with no operatives, 0 supplies)
 
     // With zero operatives / supplies, Average Vandalism (needs 2 operatives,
-    // 3 supplies) is not executable and no button should render.
+    // 3 supplies) is not executable — but per #62 it still renders, disabled.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="average_vandalism"]'),
-      'no Average Vandalism button when there are no available operatives'
-    );
+    const avgLocked = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(avgLocked, 'Average Vandalism button is present even when unavailable (#62)');
+    TestRunner.assert(avgLocked.disabled, 'Average Vandalism renders disabled/grayed when unavailable');
 
     // Give the player two available operatives and enough supplies.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
@@ -933,6 +932,7 @@ TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
 
     const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
     TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+    TestRunner.assert(!btn.disabled, 'Average Vandalism is enabled once affordable');
 
     // Stub the picker to auto-return operatives and the engine call to record it.
     const originalAssign = UI.assignOperatives;
@@ -1034,35 +1034,33 @@ TestRunner.describe('app.js — Scout-start wiring (#38)', function () {
     App.beginGame();
   }
 
-  TestRunner.test('button gated by canExecute: hidden without 4 operatives + 5 supplies, shown with them', function () {
+  TestRunner.test('button gated by canExecute: always present, disabled without 4 operatives + 5 supplies, enabled with them (#62)', function () {
     setupScoutDOM();
 
-    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies) unavailable.
+    // Fresh game: no operatives, no supplies — Scout (4 ops, 5 supplies)
+    // unavailable, but per #62 it renders disabled rather than being hidden.
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="scout"]'),
-      'no Scout button when there are no available operatives'
-    );
+    let scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button is present even with no available operatives');
+    TestRunner.assert(scout.disabled, 'Scout is disabled with no available operatives');
 
-    // Four operatives but no supplies — still unavailable.
+    // Four operatives but no supplies — still unavailable, still present+disabled.
     const op1 = { suit: 'spades', rank: 'A', value: 14 };
     const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
     const op3 = { suit: 'clubs', rank: 'K', value: 13 };
     const op4 = { suit: 'diamonds', rank: 'J', value: 11 };
     App.getState().operatives.push(op1, op2, op3, op4);
     App.renderGameState();
-    TestRunner.assert(
-      !document.querySelector('#operations-list [data-operation="scout"]'),
-      'no Scout button with 4 operatives but 0 supplies'
-    );
+    scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button still present with 4 operatives but 0 supplies');
+    TestRunner.assert(scout.disabled, 'Scout still disabled with 4 operatives but 0 supplies');
 
-    // Add the 5 supplies — now Scout is available.
+    // Add the 5 supplies — now Scout is available and enabled.
     GameState.addSupplies(App.getState(), 5);
     App.renderGameState();
-    TestRunner.assert(
-      document.querySelector('#operations-list [data-operation="scout"]'),
-      'Scout button renders with 4 operatives and 5 supplies'
-    );
+    scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout, 'Scout button present with 4 operatives and 5 supplies');
+    TestRunner.assert(!scout.disabled, 'Scout is enabled with 4 operatives and 5 supplies');
 
     GameState.deleteSave('current');
   });
@@ -2511,6 +2509,110 @@ TestRunner.describe('app.js — Operation tooltips (#61)', function () {
     TestRunner.assert(/Failure/i.test(tip) && /pool/i.test(tip),
       'tooltip states the failure consequence (stays in the pool)');
     TestRunner.assert(!/%/.test(tip), 'no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+});
+
+TestRunner.describe('app.js — Always-visible grayed-out operations (#62)', function () {
+
+  function setupOpsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('every fixed operation button is present regardless of availability; unaffordable ones are disabled', function () {
+    setupOpsDOM();
+    // Fresh game: only the Leader is available, 0 supplies. Minor Vandalism /
+    // Gather Supplies (K=1) are executable; the rest are not — but ALL render.
+    App.renderGameState();
+
+    for (const id of ['minor_vandalism', 'average_vandalism', 'significant_vandalism',
+                      'gather_supplies', 'scout', 'late_game_scout']) {
+      const btn = document.querySelector(`#operations-list [data-operation="${id}"]`);
+      TestRunner.assert(btn, `${id} button is present in the DOM`);
+    }
+
+    const minor = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(!minor.disabled, 'Minor Vandalism (affordable) is enabled');
+
+    const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    TestRunner.assert(sig.disabled, 'Significant Vandalism (unaffordable) is disabled/grayed');
+    const scout = document.querySelector('#operations-list [data-operation="scout"]');
+    TestRunner.assert(scout.disabled, 'Scout (unaffordable) is disabled/grayed');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a disabled operation cannot activate its engine handler when clicked', async function () {
+    setupOpsDOM();
+    App.renderGameState();
+
+    const originalAssign = UI.assignOperatives;
+    let assignCalled = false;
+    UI.assignOperatives = async function () { assignCalled = true; return null; };
+    try {
+      const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+      sig.click();
+      await new Promise((r) => setTimeout(r, 0));
+      TestRunner.assert(!assignCalled, 'clicking a disabled op does not reach the assignment/engine flow');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('an unavailable operation gains a "Locked: needs X (have Y)" tooltip line naming every short resource', function () {
+    setupOpsDOM();
+    // Fresh game: pool is just the Leader (1 operative), 0 supplies.
+    App.renderGameState();
+
+    const sig = document.querySelector('#operations-list [data-operation="significant_vandalism"]');
+    const tip = sig.title;
+    TestRunner.assert(/Locked:/.test(tip), 'disabled op tooltip carries a Locked line');
+    TestRunner.assert(/4 Operatives \(have 1\)/.test(tip),
+      'Locked line names the Operatives shortfall (need 4, have 1)');
+    TestRunner.assert(/5 Supplies \(have 0\)/.test(tip),
+      'Locked line names the Supplies shortfall (need 5, have 0)');
+    // Influence is not required here, so it must not appear in the Locked line.
+    TestRunner.assert(!/Influence \(have/.test(tip),
+      'Locked line omits resources that are not short');
+
+    // An affordable op has no Locked line.
+    const minor = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(!/Locked:/.test(minor.title), 'an available op shows no Locked line');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Mid-Game Op short only on Influence names just Influence in its Locked line', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // 6 operatives + 10 supplies satisfy headcount/supplies; Influence 0 < 45.
+    for (let i = 0; i < 6; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 10);
+    state.availableMidGameOps.push({ tableRoll: 1, type: 'embed_mole' });
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="embed_mole"]');
+    TestRunner.assert(btn && btn.disabled, 'embed_mole renders disabled while Influence is short');
+    const tip = btn.title;
+    TestRunner.assert(/Locked: needs 45 Influence \(have 0\)/.test(tip),
+      'Locked line names only the Influence shortfall (need 45, have 0)');
+    TestRunner.assert(!/Operatives \(have/.test(tip) && !/Supplies \(have/.test(tip),
+      'Locked line omits the satisfied Operatives / Supplies requirements');
 
     GameState.deleteSave('current');
   });
