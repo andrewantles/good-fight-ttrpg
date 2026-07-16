@@ -128,6 +128,34 @@ TestRunner.describe('dashboard.js — operationCompletionHeatmap', function () {
     // Scatter datapoints carry gameIndex for drilldown.
     TestRunner.assertEqual(d.datasets[0].data[0].gameIndex, 0, 'datapoint carries gameIndex');
   });
+
+  TestRunner.test('Y axis is explicitly labeled "Game #" (not a turn count)', function () {
+    const summaries = [
+      fixtureSummary({ milestones: { firstMidGame: 2, firstLateGame: 5, firstLateGameCompleted: null, victoryTurn: null } }),
+    ];
+    const d = Dashboard.operationCompletionHeatmap(summaries);
+    TestRunner.assertEqual(d.options.scales.y.title.text, 'Game #', 'Y axis titled Game #');
+    TestRunner.assertEqual(d.options.scales.y.title.display, true, 'Y axis title is displayed');
+  });
+
+  TestRunner.test('each point is color-encoded by its actual turn on a sequential scale', function () {
+    const summaries = [
+      fixtureSummary({ milestones: { firstMidGame: 2, firstLateGame: 8, firstLateGameCompleted: null, victoryTurn: null } }),
+    ];
+    const d = Dashboard.operationCompletionHeatmap(summaries);
+    const colors = d.datasets[0].pointBackgroundColor;
+    TestRunner.assert(Array.isArray(colors), 'dataset carries a per-point pointBackgroundColor array');
+    TestRunner.assertEqual(colors.length, d.cells.length, 'one color per cell');
+    // Each cell also carries a color derived from its turn value.
+    const cLow = d.cells.find((c) => c.turn === 2);
+    const cHigh = d.cells.find((c) => c.turn === 8);
+    const cNull = d.cells.find((c) => c.turn === null);
+    TestRunner.assert(cLow.color != null, 'cell with a turn carries a color');
+    TestRunner.assert(cLow.color !== cHigh.color, 'different turns → different colors (sequential, not flat)');
+    TestRunner.assert(cNull.color !== cLow.color, 'never-reached cell is visually distinct from a reached one');
+    // The dataset color array mirrors the per-cell colors in order.
+    TestRunner.assertEqual(colors[0], d.cells[0].color, 'pointBackgroundColor mirrors cell colors');
+  });
 });
 
 TestRunner.describe('dashboard.js — milestoneTimeline', function () {
