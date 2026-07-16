@@ -609,26 +609,34 @@ const App = (() => {
   }
 
   /**
-   * Execute Minor Vandalism (#33): pick 1 Operative (K=1), resolve via the
-   * engine, then reflect resources / log / personnel in the DOM.
+   * Execute Minor Vandalism (#33, batched in #63): a 1-Operative Operation the
+   * player may run on SEVERAL untapped units at once. Each selected unit is
+   * resolved fully independently — its own d100 roll, its own success/failure
+   * consequence, and its own enriched log line (#57) — never a single shared
+   * roll spread across the batch.
    */
   async function executeMinorVandalism() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, GameState.untappedPool(gameState));
-    if (!operatives || operatives.length !== 1) return;
+    const pool = GameState.untappedPool(gameState);
+    const operatives = await UI.assignOperativesRange(1, pool.length, pool);
+    if (!operatives || operatives.length < 1) return;
     tapUnits(operatives);
 
-    // Capture Heat before resolution — a success adds Heat, but the check ran
-    // against the pre-resolution Heat, so the logged threshold must use it too.
-    const heatAtCheck = gameState.heat;
-    const result = await Operations.resolveMinorVandalism(gameState, operatives);
-    const check = formatRollCheck(result.roll, { heat: heatAtCheck });
+    // One independent resolution per selected unit. Heat is captured PER RUN:
+    // an earlier run's success raises Heat, and each run's check ran against the
+    // Heat live at its moment, so the logged threshold must use that per-run
+    // value (the engine reads state.heat live inside checkBasic).
+    for (const unit of operatives) {
+      const heatAtCheck = gameState.heat;
+      const result = await Operations.resolveMinorVandalism(gameState, [unit]);
+      const check = formatRollCheck(result.roll, { heat: heatAtCheck });
 
-    if (result.success) {
-      addLogEntry(`Minor Vandalism succeeded — ${check}. +1 Influence, +1 Heat.`);
-    } else {
-      addLogEntry(`Minor Vandalism failed — ${check}. No effect.`);
+      if (result.success) {
+        addLogEntry(`Minor Vandalism succeeded — ${check}. +1 Influence, +1 Heat.`);
+      } else {
+        addLogEntry(`Minor Vandalism failed — ${check}. No effect.`);
+      }
     }
 
     GameState.save(gameState, 'current');
@@ -713,31 +721,37 @@ const App = (() => {
   }
 
   /**
-   * Execute Gather Supplies (#34): pick 1 Operative (K=1), resolve via the
-   * engine (3 d100 rolls, +1 Supply per success), then reflect resources /
-   * log / personnel in the DOM.
+   * Execute Gather Supplies (#34, batched in #63): a 1-Operative Operation the
+   * player may run on SEVERAL untapped units at once. Each selected unit runs
+   * its own independent resolution (3 d100 rolls, +1 Supply per success) and
+   * gets its own enriched log line (#57) — never a single shared set of rolls
+   * spread across the batch.
    */
   async function executeGatherSupplies() {
     if (!gameState) return;
 
-    const operatives = await UI.assignOperatives(1, GameState.untappedPool(gameState));
-    if (!operatives || operatives.length !== 1) return;
+    const pool = GameState.untappedPool(gameState);
+    const operatives = await UI.assignOperativesRange(1, pool.length, pool);
+    if (!operatives || operatives.length < 1) return;
     tapUnits(operatives);
 
-    // Gather Supplies rolls each check against 100 − Heat + floor(Influence/2);
-    // capture both before resolution (which only changes Supplies) so every
-    // per-roll threshold reflects the state the rolls actually ran against.
-    const heatAtCheck = gameState.heat;
-    const influenceBonus = Math.floor(gameState.influence / 2);
-    const result = await Operations.resolveGatherSupplies(gameState, operatives);
+    // One independent resolution per selected unit. Gather Supplies changes only
+    // Supplies (never Heat/Influence), so the per-run threshold inputs are
+    // stable across the batch, but each run's rolls are its own — captured and
+    // logged per run so the log shows N distinct 3-roll resolutions.
+    for (const unit of operatives) {
+      const heatAtCheck = gameState.heat;
+      const influenceBonus = Math.floor(gameState.influence / 2);
+      const result = await Operations.resolveGatherSupplies(gameState, [unit]);
 
-    const successes = result.rolls.filter(r => r.success).length;
-    const rollList = result.rolls
-      .map(r => formatRollCheck(r.roll, { heat: heatAtCheck, influenceBonus }))
-      .join('; ');
-    addLogEntry(
-      `Gather Supplies: ${successes}/3 rolls succeeded. ${rollList}. +${result.gained} Supplies.`
-    );
+      const successes = result.rolls.filter(r => r.success).length;
+      const rollList = result.rolls
+        .map(r => formatRollCheck(r.roll, { heat: heatAtCheck, influenceBonus }))
+        .join('; ');
+      addLogEntry(
+        `Gather Supplies: ${successes}/3 rolls succeeded. ${rollList}. +${result.gained} Supplies.`
+      );
+    }
 
     GameState.save(gameState, 'current');
     renderGameState();

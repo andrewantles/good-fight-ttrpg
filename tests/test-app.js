@@ -464,13 +464,14 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
     TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
 
-    // Stub the picker to auto-return the recruited operative (not the Leader)
-    // and the engine call to record it.
-    const originalAssign = UI.assignOperatives;
+    // Stub the multi-select picker to auto-return the single recruited operative
+    // (not the Leader) and the engine call to record it. Each selected unit is
+    // resolved independently, so the engine is called with a single-unit array.
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveMinorVandalism;
     let received = null;
-    UI.assignOperatives = async function (count, available) {
-      return available.filter((o) => !o.isLeader).slice(0, count);
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader).slice(0, 1);
     };
     Operations.resolveMinorVandalism = async function (state, operatives) {
       received = operatives;
@@ -483,10 +484,10 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'each unit resolves independently (one unit → one-unit array)');
       TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveMinorVandalism = originalResolve;
       GameState.deleteSave('current');
     }
@@ -511,9 +512,9 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
     const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
     TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
 
-    const originalAssign = UI.assignOperatives;
-    UI.assignOperatives = async function (count, available) {
-      return available.slice(0, count);
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.slice(0, 1);
     };
 
     try {
@@ -528,7 +529,70 @@ TestRunner.describe('app.js — Minor Vandalism wiring (#33)', function () {
       TestRunner.assert(/Minor Vandalism failed/.test(log), 'log reflects the failure, not the success message');
     } finally {
       Dice.setProvider(null);
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('selecting 2 units (#63) runs 2 INDEPENDENT resolutions — 2 log lines, deltas from 2 distinct rolls', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 0;
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    const opB = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(opA, opB);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button should render when executable');
+
+    // Multi-select picker returns BOTH recruited operatives (not the Leader).
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader);
+    };
+
+    // Deterministic dice: run 1 succeeds (d100=5, then d4=2 → no draw),
+    // run 2 fails (d100=100 > 100 − 1 Heat). Two distinct d100 rolls prove the
+    // two resolutions were independent, not one shared roll.
+    const queue = [5, 2, 100];
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve(queue[i++]));
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const entries = document.querySelectorAll('#turn-log .log-entry');
+      TestRunner.assertEqual(entries.length, 2, 'two units produce two independent log entries');
+
+      const rollValues = Array.from(document.querySelectorAll('#turn-log .roll-value'))
+        .map((s) => s.textContent);
+      TestRunner.assertEqual(rollValues.length, 2, 'each resolution logged its own d100 roll');
+      TestRunner.assertEqual(rollValues[0], '5', 'first run logged its own roll (5)');
+      TestRunner.assertEqual(rollValues[1], '100', 'second run logged its own distinct roll (100)');
+
+      const log = document.getElementById('turn-log').textContent;
+      TestRunner.assert(/Minor Vandalism succeeded/.test(log), 'first run succeeded');
+      TestRunner.assert(/Minor Vandalism failed/.test(log), 'second run failed');
+
+      // Deltas reflect exactly one success (run 1): +1 Influence, +1 Heat.
+      TestRunner.assertEqual(App.getState().influence, 1, '+1 Influence from the single success');
+      TestRunner.assertEqual(App.getState().heat, 1, '+1 Heat from the single success');
+
+      // Both selected units are tapped for the turn.
+      TestRunner.assert(opA.tapped && opB.tapped, 'both selected units tapped');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperativesRange = originalAssign;
       GameState.deleteSave('current');
     }
   });
@@ -556,14 +620,14 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
 
     // Stub the picker to select the Leader (the first entry of the assignable
     // pool) and spy on the engine call.
-    const originalAssign = UI.assignOperatives;
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveMinorVandalism;
     let received = null;
     let offered = null;
-    UI.assignOperatives = async function (count, available) {
+    UI.assignOperativesRange = async function (min, max, available) {
       offered = available;
       // pick the Leader specifically
-      return available.filter((o) => o.isLeader).slice(0, count);
+      return available.filter((o) => o.isLeader).slice(0, 1);
     };
     Operations.resolveMinorVandalism = async function (state, operatives) {
       received = operatives;
@@ -577,11 +641,11 @@ TestRunner.describe('app.js — Leader bootstraps Operations on a fresh game (#4
       TestRunner.assert(offered && offered.some((o) => o.isLeader),
         'the assignment picker was offered the Leader');
       TestRunner.assert(received !== null, 'resolveMinorVandalism was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one unit assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'the single selected unit resolves as a one-unit array');
       TestRunner.assertEqual(received[0], App.getState().leader,
         'the Leader was passed to the engine as the assigned operative');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveMinorVandalism = originalResolve;
       GameState.deleteSave('current');
     }
@@ -610,12 +674,12 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
     App.getState().heat = 90; // force failures so nothing detains/changes the pool
     App.renderGameState();
 
-    const originalAssign = UI.assignOperatives;
+    const originalAssign = UI.assignOperativesRange;
     let offered = null;
     try {
       // First execution: the Leader acts and should tap.
-      UI.assignOperatives = async function (count, available) {
-        return available.filter((o) => o.isLeader).slice(0, count);
+      UI.assignOperativesRange = async function (min, max, available) {
+        return available.filter((o) => o.isLeader).slice(0, 1);
       };
       Dice.setProvider(() => Promise.resolve(99));
       document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
@@ -624,9 +688,9 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
       TestRunner.assert(App.getState().leader.tapped, 'the Leader tapped after acting');
 
       // Second execution: the picker must NOT be offered the tapped Leader.
-      UI.assignOperatives = async function (count, available) {
+      UI.assignOperativesRange = async function (min, max, available) {
         offered = available;
-        return available.slice(0, count);
+        return available.slice(0, 1);
       };
       document.querySelector('#operations-list [data-operation="minor_vandalism"]').click();
       await new Promise((r) => setTimeout(r, 0));
@@ -641,7 +705,7 @@ TestRunner.describe('app.js — Tapping / per-turn action economy (#52)', functi
       await App.endTurn();
       TestRunner.assert(!App.getState().leader.tapped, 'End Turn untapped the Leader');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Dice.setProvider(null);
       GameState.deleteSave('current');
     }
@@ -695,13 +759,14 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
     const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
     TestRunner.assert(btn, 'Gather Supplies button should render when executable');
 
-    // Stub the picker to auto-return the recruited operative (not the Leader)
-    // and the engine call to record it.
-    const originalAssign = UI.assignOperatives;
+    // Stub the multi-select picker to auto-return the single recruited operative
+    // (not the Leader) and the engine call to record it. Each selected unit is
+    // resolved independently, so the engine is called with a single-unit array.
+    const originalAssign = UI.assignOperativesRange;
     const originalResolve = Operations.resolveGatherSupplies;
     let received = null;
-    UI.assignOperatives = async function (count, available) {
-      return available.filter((o) => !o.isLeader).slice(0, count);
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader).slice(0, 1);
     };
     Operations.resolveGatherSupplies = async function (state, operatives) {
       received = operatives;
@@ -714,7 +779,7 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       TestRunner.assert(received !== null, 'resolveGatherSupplies was called by the click');
-      TestRunner.assertEqual(received.length, 1, 'exactly one operative assigned (K=1)');
+      TestRunner.assertEqual(received.length, 1, 'each unit resolves independently (one unit → one-unit array)');
       TestRunner.assertEqual(received[0], operative, 'the picked operative was passed to the engine');
 
       // Log reflects the 3-roll result.
@@ -722,8 +787,68 @@ TestRunner.describe('app.js — Gather Supplies wiring (#34)', function () {
       TestRunner.assert(/Gather Supplies/.test(log), 'log mentions Gather Supplies');
       TestRunner.assert(/2/.test(log), 'log reflects the number of supplies gained');
     } finally {
-      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalAssign;
       Operations.resolveGatherSupplies = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('selecting 2 units (#63) runs 2 INDEPENDENT resolutions — 2 log lines, supplies from 2 distinct roll sets', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    App.getState().heat = 50; // threshold 100 − 50 = 50, so rolls > 50 fail
+    const opA = { suit: 'spades', rank: 'A', value: 14 };
+    const opB = { suit: 'hearts', rank: 'Q', value: 12 };
+    App.getState().operatives.push(opA, opB);
+    const startSupplies = App.getState().supplies;
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="gather_supplies"]');
+    TestRunner.assert(btn, 'Gather Supplies button should render when executable');
+
+    const originalAssign = UI.assignOperativesRange;
+    UI.assignOperativesRange = async function (min, max, available) {
+      return available.filter((o) => !o.isLeader);
+    };
+
+    // Deterministic dice, real engine: unit A rolls 5,5,5 (3 successes → +3),
+    // unit B rolls 90,90,5 (1 success → +1). Six distinct rolls across two
+    // 3-roll resolutions prove the runs were independent, not one shared set.
+    const queue = [5, 5, 5, 90, 90, 5];
+    let i = 0;
+    Dice.setProvider(() => Promise.resolve(queue[i++]));
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const entries = Array.from(document.querySelectorAll('#turn-log .log-entry'));
+      TestRunner.assertEqual(entries.length, 2, 'two units produce two independent log entries');
+
+      const rollValues = document.querySelectorAll('#turn-log .roll-value');
+      TestRunner.assertEqual(rollValues.length, 6, 'each resolution logged its own 3 d100 rolls (2 × 3)');
+
+      TestRunner.assert(/3\/3 rolls succeeded/.test(entries[0].textContent), 'first run: 3/3 successes');
+      TestRunner.assert(/\+3 Supplies/.test(entries[0].textContent), 'first run gained 3 Supplies');
+      TestRunner.assert(/1\/3 rolls succeeded/.test(entries[1].textContent), 'second run: 1/3 successes');
+      TestRunner.assert(/\+1 Supplies/.test(entries[1].textContent), 'second run gained 1 Supply');
+
+      // Total supplies delta reflects the two independent resolutions: +3 +1.
+      TestRunner.assertEqual(App.getState().supplies, startSupplies + 4,
+        '+4 Supplies total from two independent 3-roll resolutions');
+
+      TestRunner.assert(opA.tapped && opB.tapped, 'both selected units tapped');
+    } finally {
+      Dice.setProvider(null);
+      UI.assignOperativesRange = originalAssign;
       GameState.deleteSave('current');
     }
   });
@@ -903,6 +1028,62 @@ TestRunner.describe('app.js — Significant Vandalism wiring (#36)', function ()
 });
 
 TestRunner.describe('app.js — Average Vandalism wiring (#35)', function () {
+
+  TestRunner.test('fixed K>1 op (#63 guard): Average Vandalism still uses the exact-2 picker, never the K=1 batch range', async function () {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+
+    App.beginGame();
+    const op1 = { suit: 'spades', rank: 'A', value: 14 };
+    const op2 = { suit: 'hearts', rank: 'Q', value: 12 };
+    const op3 = { suit: 'clubs', rank: 'K', value: 13 };
+    App.getState().operatives.push(op1, op2, op3);
+    GameState.addSupplies(App.getState(), 3);
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="average_vandalism"]');
+    TestRunner.assert(btn, 'Average Vandalism button should render when executable');
+
+    // Spy on BOTH pickers. The batch K=1 change (#63) must NOT bleed into the
+    // fixed K>1 flow: Average Vandalism must call the exact-count picker with
+    // count === 2 and must never call the min≠max batch range picker.
+    const originalAssign = UI.assignOperatives;
+    const originalRange = UI.assignOperativesRange;
+    const originalResolve = Operations.resolveAverageVandalism;
+    let assignCount = null;
+    let rangeArgs = null;
+    UI.assignOperatives = async function (count, available) {
+      assignCount = count;
+      return available.filter((o) => !o.isLeader).slice(0, count);
+    };
+    UI.assignOperativesRange = async function (min, max, available) {
+      rangeArgs = { min, max };
+      return available.filter((o) => !o.isLeader).slice(0, min);
+    };
+    Operations.resolveAverageVandalism = async function () {
+      return { roll: 10, success: true };
+    };
+
+    try {
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      TestRunner.assertEqual(assignCount, 2, 'Average Vandalism asked for exactly 2 operatives (fixed K)');
+      TestRunner.assert(rangeArgs === null || rangeArgs.min === rangeArgs.max,
+        'the fixed K>1 op never opened a multi-select batch range (min ≠ max)');
+    } finally {
+      UI.assignOperatives = originalAssign;
+      UI.assignOperativesRange = originalRange;
+      Operations.resolveAverageVandalism = originalResolve;
+      GameState.deleteSave('current');
+    }
+  });
 
   TestRunner.test('renders an Average Vandalism button when executable and clicking it reaches resolveAverageVandalism', async function () {
     const container = document.getElementById('app');
