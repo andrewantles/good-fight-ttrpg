@@ -9,6 +9,19 @@ const App = (() => {
     scout: 'Scout',
   };
 
+  // Base Operations rendered as buttons, in display order. Each entry pairs an
+  // operation id (its label + requirements are read from the shared
+  // Operations.OPERATION_META table, #54) with the click handler that executes
+  // it — so renderOperations loops this list instead of duplicating a
+  // per-operation `if (Operations.canExecute(...))` block.
+  const RENDERED_OPERATIONS = [
+    'minor_vandalism',
+    'average_vandalism',
+    'significant_vandalism',
+    'gather_supplies',
+    'scout',
+  ];
+
   // d6 setup tables — exact text from the rulebook
   const RESISTANCE_VALUES = [
     'Liberty & Freedom',
@@ -381,32 +394,15 @@ const App = (() => {
     // light up Operations they can't actually crew.
     const pool = GameState.untappedPool(gameState);
 
-    const buttons = [];
-    if (Operations.canExecute('minor_vandalism', gameState, pool)) {
-      buttons.push(
-        '<button class="btn-operation" data-operation="minor_vandalism">Minor Vandalism</button>'
-      );
-    }
-    if (Operations.canExecute('average_vandalism', gameState, pool)) {
-      buttons.push(
-        '<button class="btn-operation" data-operation="average_vandalism">Average Vandalism</button>'
-      );
-    }
-    if (Operations.canExecute('significant_vandalism', gameState, pool)) {
-      buttons.push(
-        '<button class="btn-operation" data-operation="significant_vandalism">Significant Vandalism</button>'
-      );
-    }
-    if (Operations.canExecute('gather_supplies', gameState, pool)) {
-      buttons.push(
-        '<button class="btn-operation" data-operation="gather_supplies">Gather Supplies</button>'
-      );
-    }
-    if (Operations.canExecute('scout', gameState, pool)) {
-      buttons.push(
-        '<button class="btn-operation" data-operation="scout">Scout</button>'
-      );
-    }
+    // Render one button per available base Operation, reading each label from
+    // the shared Operations.OPERATION_META table (#54) rather than duplicating
+    // a per-operation `if` block.
+    const buttons = RENDERED_OPERATIONS
+      .filter((id) => Operations.canExecute(id, gameState, pool))
+      .map((id) => {
+        const meta = Operations.OPERATION_META[id];
+        return `<button class="btn-operation" data-operation="${id}">${meta.label}</button>`;
+      });
 
     // In-progress Multi-turn Operations (e.g. Scout) are shown alongside the
     // available-operation buttons, with their turn countdown.
@@ -424,30 +420,20 @@ const App = (() => {
 
     container.innerHTML = buttons.join('') + multiTurnHtml;
 
-    const minorBtn = container.querySelector('[data-operation="minor_vandalism"]');
-    if (minorBtn) {
-      minorBtn.addEventListener('click', () => executeMinorVandalism());
-    }
-
-    const averageBtn = container.querySelector('[data-operation="average_vandalism"]');
-    if (averageBtn) {
-      averageBtn.addEventListener('click', () => executeAverageVandalism());
-    }
-
-    const significantBtn = container.querySelector('[data-operation="significant_vandalism"]');
-    if (significantBtn) {
-      significantBtn.addEventListener('click', () => executeSignificantVandalism());
-    }
-
-    const gatherBtn = container.querySelector('[data-operation="gather_supplies"]');
-    if (gatherBtn) {
-      gatherBtn.addEventListener('click', () => executeGatherSupplies());
-    }
-
-    const scoutBtn = container.querySelector('button[data-operation="scout"]');
-    if (scoutBtn) {
-      scoutBtn.addEventListener('click', () => executeScout());
-    }
+    // Wire each rendered Operation button to its handler. The `.btn-operation`
+    // selector scopes to the buttons so a Multi-turn Op div sharing the same
+    // data-operation value (e.g. an in-progress Scout) is never matched.
+    const OPERATION_HANDLERS = {
+      minor_vandalism: executeMinorVandalism,
+      average_vandalism: executeAverageVandalism,
+      significant_vandalism: executeSignificantVandalism,
+      gather_supplies: executeGatherSupplies,
+      scout: executeScout,
+    };
+    RENDERED_OPERATIONS.forEach((id) => {
+      const btn = container.querySelector(`.btn-operation[data-operation="${id}"]`);
+      if (btn) btn.addEventListener('click', () => OPERATION_HANDLERS[id]());
+    });
   }
 
   /**
