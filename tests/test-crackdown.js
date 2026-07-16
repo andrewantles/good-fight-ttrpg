@@ -3,7 +3,8 @@
  *
  * At the end of every turn the Regime rolls d100; roll <= Heat triggers a
  * Crackdown whose penalty tier is selected from the roll's value. Heat is
- * reduced by the roll's value every turn regardless of whether it triggered.
+ * reduced by the roll's value only on a turn where the Crackdown triggers;
+ * non-triggering turns leave Heat unchanged by the Crackdown step (#56).
  *
  * Cascade substitution (PRD.md): a penalty requiring N of a personnel type,
  * for each missing unit, converts to 2 of the next type down
@@ -19,7 +20,7 @@ function crackdownDice(roll) {
 
 TestRunner.describe('crackdown.js — Trigger & Heat reduction', function () {
 
-  TestRunner.test('roll greater than heat does not trigger, but heat still drops by roll', async function () {
+  TestRunner.test('roll greater than heat does not trigger, and heat is unchanged by the Crackdown step (#56)', async function () {
     const state = GameState.createInitial();
     state.heat = 30;
     state.supplies = 10;
@@ -29,11 +30,11 @@ TestRunner.describe('crackdown.js — Trigger & Heat reduction', function () {
     Dice.setProvider(null);
 
     TestRunner.assertEqual(result.triggered, false, 'not triggered when roll > heat');
-    TestRunner.assertEqual(state.heat, 0, 'heat reduced by roll value, clamped at 0');
+    TestRunner.assertEqual(state.heat, 30, 'heat unchanged by Crackdown step on a non-triggering turn (#56)');
     TestRunner.assertEqual(state.supplies, 10, 'no penalty applied when not triggered');
   });
 
-  TestRunner.test('roll equal to heat triggers (roll <= heat boundary)', async function () {
+  TestRunner.test('roll equal to heat triggers (roll <= heat boundary) and reduces heat by roll (#56)', async function () {
     const state = GameState.createInitial();
     state.heat = 15;
     state.supplies = 10;
@@ -43,7 +44,20 @@ TestRunner.describe('crackdown.js — Trigger & Heat reduction', function () {
     Dice.setProvider(null);
 
     TestRunner.assertEqual(result.triggered, true, 'triggered when roll === heat');
-    TestRunner.assertEqual(state.heat, 0, 'heat reduced by roll value');
+    TestRunner.assertEqual(state.heat, 0, 'heat reduced by roll value (15 - 15) on a triggering turn');
+  });
+
+  TestRunner.test('triggering turn reduces heat by exactly the roll value (#56)', async function () {
+    const state = GameState.createInitial();
+    state.heat = 50;
+    state.supplies = 10;
+
+    crackdownDice(18); // 18 <= 50 -> triggers, tier <=20
+    const result = await Crackdown.resolveCrackdown(state);
+    Dice.setProvider(null);
+
+    TestRunner.assertEqual(result.triggered, true, 'triggered when roll <= heat');
+    TestRunner.assertEqual(state.heat, 32, 'heat reduced by exactly the roll value (50 - 18)');
   });
 
 });

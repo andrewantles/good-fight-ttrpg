@@ -196,19 +196,51 @@ const Dashboard = (() => {
         cells.push({ gameIndex: g, stageIndex: si, stage: OP_STAGES[si].label, turn: turn != null ? turn : null });
       }
     }
+    // Color each cell by the actual turn it was reached, on a single-hue
+    // sequential scale (early turns light → late turns dark). This puts the
+    // "which turn" reading on the point's fill — the Y axis is the game row,
+    // NOT a turn count. Never-reached cells get a muted neutral so they read as
+    // absent rather than as turn 0.
+    for (const c of cells) c.color = sequentialTurnColor(c.turn, maxTurn);
     return {
       type: 'scatter',
       stages,
       cells,
       gameCount: summaries.length,
       maxTurn,
+      // Y axis is the game's row within the batch — labeled so it can't be
+      // misread as the turn number (which is now encoded as the point color).
+      options: {
+        scales: {
+          y: { title: { display: true, text: 'Game #' } },
+          x: { title: { display: true, text: 'Operation stage' } },
+        },
+      },
       // Chart.js scatter dataset: one point per cell (null turns kept so every
-      // game row is present + clickable for drilldown).
+      // game row is present + clickable for drilldown). Per-point color carries
+      // the turn value on the sequential scale.
       datasets: [{
         label: 'Op milestones',
         data: cells.map((c) => ({ x: c.stageIndex, y: c.gameIndex, turn: c.turn, gameIndex: c.gameIndex })),
+        pointBackgroundColor: cells.map((c) => c.color),
       }],
     };
+  }
+
+  /**
+   * Map a milestone's turn to a color on a single-hue sequential scale: earlier
+   * turns are lighter, later turns darker, so the turn a cell was reached is
+   * readable from its fill. A null turn (never reached) returns a muted neutral,
+   * kept off the sequential ramp so it doesn't read as "turn 0".
+   * @param {number|null} turn
+   * @param {number} maxTurn - largest turn reached in the batch (scale ceiling)
+   * @returns {string} an hsl(...) color
+   */
+  function sequentialTurnColor(turn, maxTurn) {
+    if (turn == null) return 'hsl(0, 0%, 80%)';
+    const t = maxTurn > 0 ? turn / maxTurn : 0;
+    const lightness = 85 - 55 * t; // 85% (earliest) → 30% (latest)
+    return `hsl(210, 70%, ${lightness}%)`;
   }
 
   /**
@@ -300,7 +332,7 @@ const Dashboard = (() => {
     return {
       type: data.type,
       data: { labels: data.labels, datasets: data.datasets },
-      options: Object.assign({ responsive: true, maintainAspectRatio: false }, extraOptions || {}),
+      options: Object.assign({ responsive: true, maintainAspectRatio: false }, data.options || {}, extraOptions || {}),
     };
   }
 

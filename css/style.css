@@ -215,8 +215,8 @@ legend {
 
 .game-screen {
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
 }
 
 /* Top Bar */
@@ -248,6 +248,28 @@ legend {
   color: var(--gold);
   font-weight: bold;
   font-size: 1.1rem;
+}
+
+/* Proximity-to-max fill bars for Heat/Influence (#58) */
+.resource-bar {
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.resource-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--gold);
+}
+
+[data-resource="heat"] .resource-bar-fill {
+  background: var(--orange);
 }
 
 .icon-btn {
@@ -553,6 +575,19 @@ legend {
   color: var(--gold);
   font-weight: bold;
   margin-right: 6px;
+}
+
+/* Shared roll-vs-threshold log styling (#57): the rolled value and the
+   roll-under threshold it had to clear are visually distinguishable — the
+   roll emphasized, the threshold in the muted target color. */
+.roll-value {
+  color: var(--yellow);
+  font-weight: bold;
+}
+
+.roll-threshold {
+  color: var(--text-muted);
+  font-weight: bold;
 }
 
 /* Unwinnable Advisory — non-blocking hint banner (#14) */

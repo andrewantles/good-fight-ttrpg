@@ -19,6 +19,8 @@ function setupGameDOM() {
       <span id="val-supplies"></span>
       <span id="val-turn"></span>
       <span id="val-leader"></span>
+      <span class="resource-bar-fill" id="bar-influence"></span>
+      <span class="resource-bar-fill" id="bar-heat"></span>
       <div id="section-recruit-pool"><div class="card-list"></div></div>
       <div id="section-initiates"><div class="card-list"></div></div>
       <div id="section-operatives"><div class="card-list"></div></div>
@@ -2298,6 +2300,104 @@ TestRunner.describe('app.js — Backfill DOM-wiring tests (#10)', function () {
     } finally {
       UI.diceInput = originalDiceInput;
       Dice.setProvider(null);
+      GameState.deleteSave('current');
+    }
+  });
+
+});
+
+// ─── Suite: app.js — shared roll-vs-threshold log formatter (#57) ────────────
+
+TestRunner.describe('app.js — formatRollCheck shared d100 log formatter (#57)', function () {
+
+  TestRunner.test('basic check (Heat only): roll and threshold in distinct spans + formula', function () {
+    const frag = App.formatRollCheck(62, { heat: 15 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">62</span>, needed ≤ <span class="roll-threshold">85</span> (base 100 − 15 Heat)',
+      'renders roll/threshold spans and the base-100-minus-Heat formula'
+    );
+  });
+
+  TestRunner.test('with an Influence bonus (Gather Supplies): + Influence term, higher threshold', function () {
+    const frag = App.formatRollCheck(40, { heat: 10, influenceBonus: 20 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">40</span>, needed ≤ <span class="roll-threshold">110</span> (base 100 − 10 Heat + 20 Influence)',
+      'Influence bonus is added to the threshold and shown in the formula'
+    );
+  });
+
+  TestRunner.test('with an operative-value bonus (Scout / Mid / Late ops): + operative value term', function () {
+    const frag = App.formatRollCheck(70, { heat: 20, operativeBonus: 14 });
+    TestRunner.assertEqual(
+      frag,
+      'rolled <span class="roll-value">70</span>, needed ≤ <span class="roll-threshold">94</span> (base 100 − 20 Heat + 14 operative value)',
+      'operative-value bonus is added to the threshold and shown in the formula'
+    );
+  });
+
+  TestRunner.test('roll and threshold use distinct span classes (visually distinguishable)', function () {
+    const frag = App.formatRollCheck(50, { heat: 0 });
+    TestRunner.assert(/class="roll-value"/.test(frag), 'roll uses the roll-value class');
+    TestRunner.assert(/class="roll-threshold"/.test(frag), 'threshold uses the roll-threshold class');
+  });
+
+});
+
+TestRunner.describe('app.js — Heat/Influence progress bars (#58)', function () {
+
+  TestRunner.test('Heat bar fill is proportional to the 0–100 range', function () {
+    const state = bootTestGame();
+    try {
+      state.heat = 0;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-heat').style.width, '0%',
+        'Heat 0 → empty bar');
+
+      state.heat = 50;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-heat').style.width, '50%',
+        'Heat 50 → half-full bar');
+
+      state.heat = 100;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-heat').style.width, '100%',
+        'Heat 100 → full bar');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('Influence bar fill is proportional to the 0–500 range', function () {
+    const state = bootTestGame();
+    try {
+      state.influence = 0;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-influence').style.width, '0%',
+        'Influence 0 → empty bar');
+
+      state.influence = 250;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-influence').style.width, '50%',
+        'Influence 250 → half-full bar');
+
+      state.influence = 500;
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-influence').style.width, '100%',
+        'Influence 500 → full bar');
+    } finally {
+      GameState.deleteSave('current');
+    }
+  });
+
+  TestRunner.test('Supplies has no progress bar element', function () {
+    bootTestGame();
+    try {
+      App.renderResources();
+      TestRunner.assertEqual(document.getElementById('bar-supplies'), null,
+        'Supplies has no fixed ceiling, so no bar');
+    } finally {
       GameState.deleteSave('current');
     }
   });

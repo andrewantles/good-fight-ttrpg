@@ -661,9 +661,155 @@ const Operations = (() => {
     return { roll, success };
   }
 
+  // ─── Shared Operation metadata table (#54) ──────────────────────────────────
+
+  /**
+   * ONE lookup-able source of truth describing every Operation the player can
+   * mount: its resource requirements, its success effect, and its failure
+   * consequence. The render loop (renderOperations), plus upcoming tooltip
+   * (#61) and grayed-out (#62) features, read from here instead of duplicating
+   * per-operation knowledge.
+   *
+   * `requirements` reuses the OPERATION_REQS entries so the crew/supply gate
+   * stays single-sourced. Mid/Late-Game types share the mid_game_op /
+   * late_game_op requirements and carry the difficulty-gated Influence
+   * `influenceThreshold` map (30/45/60 or 60/90/120). `success` / `failure`
+   * are display strings only (no behavioral role — resolution stays owned by
+   * the resolve/apply functions above).
+   */
+  const OPERATION_META = {
+    minor_vandalism: {
+      label: 'Minor Vandalism',
+      requirements: OPERATION_REQS.minor_vandalism,
+      success: '+1 Influence, +1 Heat; on a d4 roll of 1, draw 1 card to the Recruit Pool.',
+      failure: 'No effect.',
+    },
+    average_vandalism: {
+      label: 'Average Vandalism',
+      requirements: OPERATION_REQS.average_vandalism,
+      success: '+3 Influence, +3 Heat, +1 Recruit Pool card.',
+      failure: '1 Operative detained 1 turn.',
+    },
+    significant_vandalism: {
+      label: 'Significant Vandalism',
+      requirements: OPERATION_REQS.significant_vandalism,
+      success: '+10 Influence, +10 Heat, +2 Recruit Pool cards.',
+      failure: 'Compound Failure: 1 Operative detained 2 turns, plus detain 1 more 2 turns or −2 Supplies.',
+    },
+    gather_supplies: {
+      label: 'Gather Supplies',
+      requirements: OPERATION_REQS.gather_supplies,
+      success: '+1 Supply per successful roll (3 rolls).',
+      failure: 'No effect.',
+    },
+    scout: {
+      label: 'Scout',
+      requirements: OPERATION_REQS.scout,
+      success: 'Reveals a Mid-Game Operation opportunity (resolves in 2 turns).',
+      failure: 'Compound Failure: 1 Operative detained 1 turn, plus detain 1 more 1 turn or −2 Supplies.',
+    },
+    late_game_scout: {
+      label: 'Late-Game Scout',
+      requirements: OPERATION_REQS.late_game_op,
+      success: 'Reveals a Late-Game Operation opportunity (resolves in 3 turns).',
+      failure: 'Compound Failure: 2 Operatives detained 2 turns, plus detain 1 more 2 turns or −4 Supplies.',
+    },
+
+    // ── Mid-Game Operation types (6 Operatives, 10 Supplies consumed, Influence
+    //    threshold 30/45/60; failure captures 1 assigned Operative) ──
+    embed_mole: {
+      label: 'Embed Mole / Bribe Regime Official',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '−35 Heat.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+    hack_comm_tower: {
+      label: 'Hack / Tap / Destroy Comm Tower',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '+25 Influence, −15 Heat.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+    industry_strike: {
+      label: 'Stage Industry Strike / Public Demonstration',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '−35 Heat.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+    break_out: {
+      label: 'Break Out Imprisoned Operatives',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '+2 Operatives (drawn straight to the Op Team), +10 Heat.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+    intercept_supply: {
+      label: 'Intercept Supply Convoy / Raid Storehouse',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '+15 Supplies, +10 Heat.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+    clandestine_goods: {
+      label: 'Provide Clandestine Goods / Services',
+      requirements: OPERATION_REQS.mid_game_op,
+      influenceThreshold: MID_GAME_INFLUENCE_THRESHOLD,
+      success: '+50 Influence.',
+      failure: '1 assigned Operative captured (card recycled to the Recruitment Deck).',
+    },
+
+    // ── Late-Game Operation types (12 Operatives, 20 Supplies consumed,
+    //    Influence threshold 60/90/120, 3 turns; failure captures 2) ──
+    neutralize_leadership: {
+      label: 'Neutralize Regime Leadership',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '−50 Heat.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+    news_agency: {
+      label: 'Establish News Agency / Seize Communications',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '+50 Influence, −15 Heat.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+    establish_militia: {
+      label: 'Establish Militia and Security Forces',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '−50 Heat.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+    liberate_prison: {
+      label: 'Liberate Prison Facilities',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '+5 Operatives (drawn straight to the Op Team), +15 Heat.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+    control_supply: {
+      label: 'Control Supply Networks / Egress Points',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '+25 Supplies, +15 Heat.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+    provisional_government: {
+      label: 'Establish Provisional Government / Elections',
+      requirements: OPERATION_REQS.late_game_op,
+      influenceThreshold: LATE_GAME_INFLUENCE_THRESHOLD,
+      success: '+50 Influence.',
+      failure: '2 assigned Operatives captured (cards recycled to the Recruitment Deck).',
+    },
+  };
+
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   return {
+    OPERATION_META,
     canExecute,
     canExecuteMidGameOp,
     canExecuteLateGameOp,

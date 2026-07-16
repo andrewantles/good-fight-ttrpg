@@ -24,6 +24,8 @@ function setupGameDOM() {
       <span id="val-supplies"></span>
       <span id="val-turn"></span>
       <span id="val-leader"></span>
+      <span class="resource-bar-fill" id="bar-influence"></span>
+      <span class="resource-bar-fill" id="bar-heat"></span>
       <div id="section-recruit-pool"><div class="card-list"></div></div>
       <div id="section-initiates"><div class="card-list"></div></div>
       <div id="section-operatives"><div class="card-list"></div></div>
@@ -1103,6 +1105,39 @@ TestRunner.describe('operations.js — Leader never detained (#47)', function ()
     TestRunner.assertEqual(state.detainedOperatives.length, 1, '1 operative detained');
     TestRunner.assert(!state.detainedOperatives[0].card.isLeader, 'Leader not detained despite mid-set position');
     TestRunner.assertEqual(state.detainedOperatives[0].card, op1, 'first real operative detained');
+  });
+
+});
+
+// ─── Suite: Operations — shared Operation metadata table (#54) ───────────────
+
+TestRunner.describe('Operations — OPERATION_META shared metadata table (#54)', function () {
+
+  TestRunner.test('exposes requirements, success and failure text for a representative base Operation', function () {
+    const meta = Operations.OPERATION_META && Operations.OPERATION_META.significant_vandalism;
+    TestRunner.assert(meta, 'significant_vandalism entry exists in OPERATION_META');
+    TestRunner.assert(meta.label, 'has a human-readable label');
+    TestRunner.assert(meta.requirements, 'has a requirements descriptor');
+    TestRunner.assertEqual(meta.requirements.operatives, 4, 'requires 4 operatives');
+    TestRunner.assertEqual(meta.requirements.supplies, 5, 'requires 5 supplies');
+    TestRunner.assert(typeof meta.success === 'string' && meta.success.length > 0, 'has success effect text');
+    TestRunner.assert(typeof meta.failure === 'string' && meta.failure.length > 0, 'has failure consequence text');
+  });
+
+  TestRunner.test('covers each of the 12 individual Mid/Late-Game Operation types', function () {
+    const ids = [
+      'embed_mole', 'hack_comm_tower', 'industry_strike', 'break_out',
+      'intercept_supply', 'clandestine_goods', 'neutralize_leadership',
+      'news_agency', 'establish_militia', 'liberate_prison', 'control_supply',
+      'provisional_government',
+    ];
+    for (const id of ids) {
+      const meta = Operations.OPERATION_META[id];
+      TestRunner.assert(meta, `${id} entry exists in OPERATION_META`);
+      TestRunner.assert(meta.requirements, `${id} has requirements`);
+      TestRunner.assert(typeof meta.success === 'string' && meta.success.length > 0, `${id} has success text`);
+      TestRunner.assert(typeof meta.failure === 'string' && meta.failure.length > 0, `${id} has failure text`);
+    }
   });
 
 });
