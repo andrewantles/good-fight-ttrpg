@@ -2403,3 +2403,116 @@ TestRunner.describe('app.js — Heat/Influence progress bars (#58)', function ()
   });
 
 });
+
+TestRunner.describe('app.js — Operation tooltips (#61)', function () {
+
+  // Game DOM including the Operations panel and personnel sections (so both
+  // operation buttons and Recruit buttons can be exercised).
+  function setupOpsDOM() {
+    const container = document.getElementById('app');
+    container.innerHTML = `
+      <div data-screen="setup" class="screen"></div>
+      <div data-screen="game" class="screen">
+        <section id="section-recruit-pool"><div class="card-list"></div></section>
+        <section id="section-initiates"><div class="card-list"></div></section>
+        <section id="section-operatives"><div class="card-list"></div></section>
+        <section id="section-detained"><div class="card-list"></div></section>
+        <div id="operations-list"></div>
+        <div id="turn-log"></div>
+      </div>
+    `;
+    App.beginGame();
+  }
+
+  TestRunner.test('a base operation button carries a static rule tooltip (requirements, success, failure)', function () {
+    setupOpsDOM();
+    // Fresh game: the Leader bootstraps K=1 ops, so Minor Vandalism renders.
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="minor_vandalism"]');
+    TestRunner.assert(btn, 'Minor Vandalism button renders');
+    const tip = btn.title;
+    TestRunner.assert(/Requires/i.test(tip), 'tooltip states requirements');
+    TestRunner.assert(/1 Operative/.test(tip), 'tooltip names the operative requirement');
+    TestRunner.assert(/Success/i.test(tip) && /\+1 Influence, \+1 Heat/.test(tip),
+      'tooltip states the success effect from OPERATION_META');
+    TestRunner.assert(/Failure/i.test(tip) && /No effect/.test(tip),
+      'tooltip states the failure consequence from OPERATION_META');
+    TestRunner.assert(!/%/.test(tip), 'tooltip shows no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Mid-Game Operation renders its own type-specific tooltip', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // Make a Mid-Game Op executable: 6 operatives, 10 supplies, Influence >= 45.
+    for (let i = 0; i < 6; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 10);
+    GameState.addInfluence(state, 45);
+    state.availableMidGameOps.push({ tableRoll: 1, type: 'embed_mole' });
+    App.renderGameState();
+
+    const btn = document.querySelector('#operations-list [data-operation="embed_mole"]');
+    TestRunner.assert(btn, 'a scouted embed_mole Mid-Game Op renders a button');
+    const tip = btn.title;
+    TestRunner.assert(/Requires/i.test(tip) && /45 Influence/.test(tip),
+      'tooltip states requirements incl. the Mid-Game Influence threshold');
+    TestRunner.assert(/Success/i.test(tip) && /−35 Heat/.test(tip),
+      'tooltip shows embed_mole\'s own success effect, not a placeholder');
+    TestRunner.assert(/Failure/i.test(tip) && /captured/.test(tip),
+      'tooltip shows the capture failure consequence');
+    TestRunner.assert(!/%/.test(tip), 'no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('a scouted Late-Game Operation and Late-Game Scout render their own tooltips', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    // Make a Late-Game Op executable: 12 operatives, 20 supplies, Influence >= 90.
+    for (let i = 0; i < 12; i++) state.operatives.push({ suit: 'spades', rank: 'A', value: 14 });
+    GameState.addSupplies(state, 20);
+    GameState.addInfluence(state, 90);
+    state.availableLateGameOps.push({ tableRoll: 1, type: 'neutralize_leadership' });
+    App.renderGameState();
+
+    const lateBtn = document.querySelector('#operations-list [data-operation="neutralize_leadership"]');
+    TestRunner.assert(lateBtn, 'a scouted neutralize_leadership Late-Game Op renders a button');
+    const lateTip = lateBtn.title;
+    TestRunner.assert(/Requires/i.test(lateTip) && /90 Influence/.test(lateTip),
+      'tooltip states the Late-Game Influence threshold');
+    TestRunner.assert(/Success/i.test(lateTip) && /−50 Heat/.test(lateTip),
+      'tooltip shows neutralize_leadership\'s own success effect');
+    TestRunner.assert(/Failure/i.test(lateTip) && /captured/.test(lateTip),
+      'tooltip shows the capture failure consequence');
+
+    // Late-Game Scout (a fixed op) is now available too and carries a tooltip.
+    const scoutBtn = document.querySelector('#operations-list [data-operation="late_game_scout"]');
+    TestRunner.assert(scoutBtn, 'Late-Game Scout button renders when affordable');
+    TestRunner.assert(/Reveals a Late-Game Operation opportunity/.test(scoutBtn.title),
+      'Late-Game Scout tooltip carries its own success effect');
+
+    GameState.deleteSave('current');
+  });
+
+  TestRunner.test('Recruit buttons carry a static tooltip (Recruit is a d10/d12 roll-over, absent from OPERATION_META)', function () {
+    setupOpsDOM();
+    const state = App.getState();
+    state.recruitPool.push({ suit: 'hearts', rank: '5', value: 5 });
+    App.renderGameState();
+
+    const btn = document.querySelector('#section-recruit-pool .btn-recruit');
+    TestRunner.assert(btn, 'a Recruit button renders for a pooled card');
+    const tip = btn.title;
+    TestRunner.assert(/Recruit/i.test(tip), 'tooltip names the Recruit action');
+    TestRunner.assert(/Success/i.test(tip) && /Initiate/.test(tip),
+      'tooltip states the success effect (joins as an Initiate)');
+    TestRunner.assert(/Failure/i.test(tip) && /pool/i.test(tip),
+      'tooltip states the failure consequence (stays in the pool)');
+    TestRunner.assert(!/%/.test(tip), 'no computed success percentage');
+
+    GameState.deleteSave('current');
+  });
+
+});

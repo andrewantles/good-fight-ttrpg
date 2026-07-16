@@ -4,22 +4,35 @@
 const App = (() => {
   let activeScreen = null;
 
+  // Static rule-content tooltip for the Recruit action (#61). Recruit is a
+  // d10/d12 roll-over Attempt, not a d100 Operation, so it has no OPERATION_META
+  // entry; its tooltip is sourced here in the same requirements/success/failure
+  // shape as the Operation tooltips.
+  const RECRUIT_TOOLTIP = [
+    'Recruit',
+    'Requires: an eligible Operative (or the Leader) whose value beats the target card; optionally spend 1 Supply to upgrade the die (d10 → d12).',
+    'Success: the card joins as an Initiate (activates in 2 turns).',
+    'Failure: the card stays in the Recruit Pool.',
+  ].join('\n');
+
   // Human-readable labels for in-progress Multi-turn Operations.
   const OPERATION_LABELS = {
     scout: 'Scout',
+    late_game_scout: 'Late-Game Scout',
+    late_game_op: 'Late-Game Operation',
   };
 
-  // Base Operations rendered as buttons, in display order. Each entry pairs an
-  // operation id (its label + requirements are read from the shared
-  // Operations.OPERATION_META table, #54) with the click handler that executes
-  // it — so renderOperations loops this list instead of duplicating a
-  // per-operation `if (Operations.canExecute(...))` block.
-  const RENDERED_OPERATIONS = [
+  // Fixed Operations rendered every turn (as opposed to the per-opportunity
+  // Mid/Late-Game Operation buttons, which only appear once scouted). Order is
+  // display order. Late-Game Scout shares the late_game_op requirements, so its
+  // availability is gated by canExecute('late_game_op', …).
+  const FIXED_OPERATIONS = [
     'minor_vandalism',
     'average_vandalism',
     'significant_vandalism',
     'gather_supplies',
     'scout',
+    'late_game_scout',
   ];
 
   // d6 setup tables — exact text from the rulebook
@@ -387,11 +400,127 @@ const App = (() => {
   }
 
   /**
+   * Difficulty-appropriate Influence threshold to display / gate an Operation.
+   * Mid/Late-Game types carry an `influenceThreshold` map (easy/medium/hard);
+   * every other Operation uses its flat `requirements.influence` (usually 0).
+   * @param {object} meta - an OPERATION_META entry
+   * @returns {number}
+   */
+  function operationInfluenceThreshold(meta) {
+    if (meta.influenceThreshold) {
+      const diff = (gameState && gameState.difficulty) || 'medium';
+      return meta.influenceThreshold[diff] ?? meta.influenceThreshold.medium;
+    }
+    return (meta.requirements && meta.requirements.influence) || 0;
+  }
+
+  /**
+   * Human-readable "Requires: …" line for an Operation, listing only the
+   * resource costs that actually apply (non-zero), read from OPERATION_META.
+   * @param {object} meta - an OPERATION_META entry
+   * @returns {string}
+   */
+  function formatOperationRequirements(meta) {
+    const reqs = meta.requirements || {};
+    const parts = [];
+    if (reqs.operatives) {
+      parts.push(`${reqs.operatives} Operative${reqs.operatives !== 1 ? 's' : ''}`);
+    }
+    if (reqs.supplies) parts.push(`${reqs.supplies} Supplies`);
+    const influence = operationInfluenceThreshold(meta);
+    if (influence) parts.push(`${influence} Influence`);
+    return 'Requires: ' + (parts.length ? parts.join(', ') : 'None');
+  }
+
+  /**
+   * Static rule-content tooltip for an Operation (#61): its resource
+   * requirements, success effect, and failure consequence — all sourced from
+   * the shared OPERATION_META table (#54), never a computed success chance.
+   * @param {string} metaId - key into OPERATION_META
+   * @returns {string} newline-separated tooltip text (empty if unknown)
+   */
+  function operationTooltip(metaId) {
+    const meta = Operations.OPERATION_META[metaId];
+    if (!meta) return '';
+    return [
+      formatOperationRequirements(meta),
+      `Success: ${meta.success}`,
+      `Failure: ${meta.failure}`,
+    ].join('\n');
+  }
+
+  /**
    * Render the available operations into #operations-list.
    * Minor Vandalism is the first wired operation (#33): a single button,
    * gated by Operations.canExecute — no shared "render any operation"
    * abstraction yet.
    */
+  // Handlers for the fixed (always-considered) Operations, keyed by id.
+  const FIXED_OPERATION_HANDLERS = {
+    minor_vandalism: executeMinorVandalism,
+    average_vandalism: executeAverageVandalism,
+    significant_vandalism: executeSignificantVandalism,
+    gather_supplies: executeGatherSupplies,
+    scout: executeScout,
+    late_game_scout: executeLateGameScout,
+  };
+
+  /**
+   * Build the ordered list of Operation-button descriptors for the current
+   * state: the fixed Operations plus one entry per scouted Mid/Late-Game
+   * opportunity. Each descriptor carries its own availability flag (from the
+   * matching engine predicate) and click handler, so the render loop stays a
+   * flat map instead of a pile of per-operation `if` blocks.
+   * @param {object} state
+   * @param {Array} pool - untapped assignable units
+   * @returns {Array<{key,dataOp,metaId,label,available,onClick}>}
+   */
+  function collectOperationDescriptors(state, pool) {
+    const descriptors = [];
+
+    for (const id of FIXED_OPERATIONS) {
+      const meta = Operations.OPERATION_META[id];
+      // Late-Game Scout shares the late_game_op requirements table.
+      const gateId = id === 'late_game_scout' ? 'late_game_op' : id;
+      descriptors.push({
+        key: id,
+        dataOp: id,
+        metaId: id,
+        label: meta.label,
+        available: Operations.canExecute(gateId, state, pool),
+        onClick: FIXED_OPERATION_HANDLERS[id],
+      });
+    }
+
+    // Scouted Mid-Game opportunities — one button per available opportunity.
+    (state.availableMidGameOps || []).forEach((op, i) => {
+      const meta = Operations.OPERATION_META[op.type];
+      descriptors.push({
+        key: `mid_game_op:${i}`,
+        dataOp: op.type,
+        metaId: op.type,
+        label: meta.label,
+        available: Operations.canExecuteMidGameOp(state, pool),
+        onClick: () => executeMidGameOp(op),
+      });
+    });
+
+    // Scouted Late-Game opportunities — one button per available opportunity.
+    (state.availableLateGameOps || []).forEach((op, i) => {
+      const meta = Operations.OPERATION_META[op.type];
+      descriptors.push({
+        key: `late_game_op:${i}`,
+        dataOp: op.type,
+        metaId: op.type,
+        label: meta.label,
+        available: Operations.canExecuteLateGameOp(state, pool),
+        onClick: () => executeLateGameOp(op),
+      });
+    });
+
+    return descriptors;
+  }
+
   function renderOperations() {
     const container = document.getElementById('operations-list');
     if (!container || !gameState) return;
@@ -402,15 +531,14 @@ const App = (() => {
     // light up Operations they can't actually crew.
     const pool = GameState.untappedPool(gameState);
 
-    // Render one button per available base Operation, reading each label from
-    // the shared Operations.OPERATION_META table (#54) rather than duplicating
-    // a per-operation `if` block.
-    const buttons = RENDERED_OPERATIONS
-      .filter((id) => Operations.canExecute(id, gameState, pool))
-      .map((id) => {
-        const meta = Operations.OPERATION_META[id];
-        return `<button class="btn-operation" data-operation="${id}">${meta.label}</button>`;
-      });
+    // Only available Operations render for now (#61); #62 flips this to always
+    // render, disabling the ones whose requirements aren't met.
+    const descriptors = collectOperationDescriptors(gameState, pool)
+      .filter((d) => d.available);
+
+    const buttons = descriptors.map((d) =>
+      `<button class="btn-operation" data-operation="${d.dataOp}" data-op-key="${d.key}">${d.label}</button>`
+    );
 
     // In-progress Multi-turn Operations (e.g. Scout) are shown alongside the
     // available-operation buttons, with their turn countdown.
@@ -428,19 +556,15 @@ const App = (() => {
 
     container.innerHTML = buttons.join('') + multiTurnHtml;
 
-    // Wire each rendered Operation button to its handler. The `.btn-operation`
-    // selector scopes to the buttons so a Multi-turn Op div sharing the same
-    // data-operation value (e.g. an in-progress Scout) is never matched.
-    const OPERATION_HANDLERS = {
-      minor_vandalism: executeMinorVandalism,
-      average_vandalism: executeAverageVandalism,
-      significant_vandalism: executeSignificantVandalism,
-      gather_supplies: executeGatherSupplies,
-      scout: executeScout,
-    };
-    RENDERED_OPERATIONS.forEach((id) => {
-      const btn = container.querySelector(`.btn-operation[data-operation="${id}"]`);
-      if (btn) btn.addEventListener('click', () => OPERATION_HANDLERS[id]());
+    // Wire each rendered Operation button to its handler and its static
+    // rule-content tooltip (#61). The `.btn-operation[data-op-key]` selector
+    // scopes to buttons (never a Multi-turn Op div) and uniquely identifies
+    // each descriptor even when two scouted opportunities share a type.
+    descriptors.forEach((d) => {
+      const btn = container.querySelector(`.btn-operation[data-op-key="${d.key}"]`);
+      if (!btn) return;
+      btn.title = operationTooltip(d.metaId);
+      btn.addEventListener('click', () => d.onClick());
     });
   }
 
@@ -603,6 +727,81 @@ const App = (() => {
   }
 
   /**
+   * Start a Late-Game Scout (multi-turn, mirrors executeScout): assign 6
+   * Operatives, hand off to the engine (−8 Supplies, 3-turn multi-turn op),
+   * then reflect the started op in the DOM. Resolution is driven by End Turn.
+   */
+  async function executeLateGameScout() {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(6, GameState.untappedPool(gameState));
+    if (!operatives || operatives.length !== 6) return;
+    tapUnits(operatives);
+
+    Operations.startLateGameScout(gameState, operatives);
+
+    addLogEntry('Late-Game Scout operation started (−8 Supplies, 6 Operatives assigned). Resolves in 3 turns.');
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Execute a scouted Mid-Game Operation (immediate resolution, mirrors the
+   * Vandalism tiers): assign 6 Operatives, resolve via the engine (−10
+   * Supplies, d100 − Heat + operative-value check), and log the roll and the
+   * type-specific effect. On success the opportunity is consumed; on failure
+   * one assigned Operative is captured.
+   * @param {object} op - the availableMidGameOps entry (has `.type`)
+   */
+  async function executeMidGameOp(op) {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(6, GameState.untappedPool(gameState));
+    if (!operatives || operatives.length !== 6) return;
+    tapUnits(operatives);
+
+    const meta = Operations.OPERATION_META[op.type];
+    const heatAtCheck = gameState.heat;
+    const operativeBonus = operatives.reduce((sum, o) => sum + o.value, 0);
+    const result = await Operations.resolveMidGameOp(gameState, op, operatives);
+    const check = formatRollCheck(result.roll, { heat: heatAtCheck, operativeBonus });
+
+    if (result.success) {
+      addLogEntry(`${meta.label} succeeded — ${check}. ${meta.success}`);
+    } else {
+      addLogEntry(`${meta.label} failed — ${check}. ${meta.failure}`);
+    }
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
+   * Start a scouted Late-Game Operation (multi-turn, mirrors Scout): assign 12
+   * Operatives, hand off to the engine (−20 Supplies, 3-turn multi-turn op
+   * carrying the opportunity), then reflect the started op in the DOM.
+   * Resolution — applying the type-specific effect and the Victory check — is
+   * driven by End Turn.
+   * @param {object} op - the availableLateGameOps entry (has `.type`)
+   */
+  async function executeLateGameOp(op) {
+    if (!gameState) return;
+
+    const operatives = await UI.assignOperatives(12, GameState.untappedPool(gameState));
+    if (!operatives || operatives.length !== 12) return;
+    tapUnits(operatives);
+
+    const meta = Operations.OPERATION_META[op.type];
+    Operations.startLateGameOp(gameState, op, operatives);
+
+    addLogEntry(`${meta.label} started (−20 Supplies, 12 Operatives assigned). Resolves in 3 turns.`);
+
+    GameState.save(gameState, 'current');
+    renderGameState();
+  }
+
+  /**
    * Render personnel panel sections.
    */
   function renderPersonnel() {
@@ -651,6 +850,7 @@ const App = (() => {
     // Wire recruit buttons
     if (options.showRecruit) {
       container.querySelectorAll('.btn-recruit').forEach(btn => {
+        btn.title = RECRUIT_TOOLTIP;
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.dataset.cardIndex, 10);
           attemptRecruit(idx);
